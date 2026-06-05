@@ -13,7 +13,7 @@ import "@pixi/sound";
 // Register service worker for PWA support
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/ime3/sw.js");
+    navigator.serviceWorker.register("/isometric-map-editor/sw.js");
   });
 }
 
