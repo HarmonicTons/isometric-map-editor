@@ -183,6 +183,7 @@ export class Map extends Container {
     const existingObject = this.getMapObjectAt(iso);
     if (existingObject) {
       this.removeChild(existingObject);
+      existingObject.destroy({ children: true });
       delete this.objects[iso.toString()];
     }
   }
