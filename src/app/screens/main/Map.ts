@@ -171,6 +171,7 @@ export class Map extends Container {
     const existingTile = this.getTileAt(iso);
     if (existingTile) {
       this.removeChild(existingTile);
+      existingTile.destroy({ children: true });
       delete this.tiles[iso.toString()];
       // Update neighborhood
       this.updateTileNeighbors(iso);
