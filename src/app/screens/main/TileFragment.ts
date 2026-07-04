@@ -1,6 +1,6 @@
 import { Sprite } from "pixi.js";
 import { NoTextureFoundError } from "./NoTextureFoundError";
-import { GetTileNeighbor, Tile } from "./Tile";
+import { GetTileNeighbor } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 
 /**
@@ -49,7 +49,6 @@ export class TileFragment extends Sprite {
   constructor({
     type,
     key,
-    tile,
     getTileNeighbor,
     height,
     tileFragmentsTextures,
@@ -58,7 +57,6 @@ export class TileFragment extends Sprite {
     key: TileFragmentKey;
     getTileNeighbor: GetTileNeighbor;
     height: number;
-    tile: Tile;
     tileFragmentsTextures: TileFragmentsTextures;
   }) {
     const texture = tileFragmentsTextures.getFragmentTexture({
@@ -73,6 +71,5 @@ export class TileFragment extends Sprite {
     const position = tileFragmentPosition[key];
 
     super({ texture, position });
-    tile.addChild(this);
   }
 }

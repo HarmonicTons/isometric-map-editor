@@ -212,6 +212,23 @@ export class Map extends Container {
   }
 
   /**
+   * Update a tile sprite
+   * If the tile has no visible fragments, it will be removed from the map
+   * If the tile has visible fragments and is not in the map, it will be added to the map
+   */
+  private refreshTile(tile: Tile) {
+    tile.updateNeighborhood();
+    if (tile.hasVisibleFragments && !tile.parent) {
+      this.addChild(tile);
+      return;
+    }
+    if (!tile.hasVisibleFragments && tile.parent) {
+      this.removeChild(tile);
+      return;
+    }
+  }
+
+  /**
    * This won't work with tiles that are not UNESWD
    * TODO note which tile depends on which tile in a linked list
    */
@@ -223,31 +240,31 @@ export class Map extends Container {
       if (!neighborTile) {
         continue;
       }
-      neighborTile.updateNeighborhood();
+      this.refreshTile(neighborTile);
     }
     // HACK: hard code tiles to update
     const uuuNeighborTile = this.getTileAt(
       iso.move("up").move("up").move("up")
     );
-    uuuNeighborTile?.updateNeighborhood();
+    if (uuuNeighborTile) this.refreshTile(uuuNeighborTile);
     const uuNeighborTile = this.getTileAt(iso.move("up").move("up"));
-    uuNeighborTile?.updateNeighborhood();
+    if (uuNeighborTile) this.refreshTile(uuNeighborTile);
     const unNeighborTile = this.getTileAt(iso.move("up").move("north"));
-    unNeighborTile?.updateNeighborhood();
+    if (unNeighborTile) this.refreshTile(unNeighborTile);
     const uwNeighborTile = this.getTileAt(iso.move("up").move("west"));
-    uwNeighborTile?.updateNeighborhood();
+    if (uwNeighborTile) this.refreshTile(uwNeighborTile);
     const ddNeighborTile = this.getTileAt(iso.move("down").move("down"));
-    ddNeighborTile?.updateNeighborhood();
+    if (ddNeighborTile) this.refreshTile(ddNeighborTile);
     const dsNeighborTile = this.getTileAt(iso.move("down").move("south"));
-    dsNeighborTile?.updateNeighborhood();
+    if (dsNeighborTile) this.refreshTile(dsNeighborTile);
     const deNeighborTile = this.getTileAt(iso.move("down").move("east"));
-    deNeighborTile?.updateNeighborhood();
+    if (deNeighborTile) this.refreshTile(deNeighborTile);
   }
 
   private updateAllTileNeighborhood() {
     for (const key in this.tiles) {
       const tile = this.tiles[key];
-      tile.updateNeighborhood();
+      this.refreshTile(tile);
     }
   }
 

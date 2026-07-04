@@ -50,6 +50,10 @@ export class Tile extends Container {
     }
   }
 
+  public get hasVisibleFragments(): boolean {
+    return this.children.length > 0;
+  }
+
   /**
    * Get the side of the tile that was clicked based on the local coordinates of the click
    */
@@ -80,14 +84,14 @@ export class Tile extends Container {
   private setTileFragments() {
     tileFragmentKeys.forEach((key) => {
       try {
-        new TileFragment({
+        const fragment = new TileFragment({
           type: this.type,
           key,
           getTileNeighbor: this.getTileNeighbor,
           height: this.isoCoordinates.u,
-          tile: this,
           tileFragmentsTextures: this.tileFragmentsTextures,
         });
+        this.addChild(fragment);
       } catch (e) {
         if (e instanceof NoTextureFoundError) {
           // can safely ignore, just means this fragment is empty
