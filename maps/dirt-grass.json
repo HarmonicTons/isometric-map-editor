@@ -1,0 +1,23 @@
+{
+  "objects": {},
+  "tiles": {
+    "1,0,0": "dirt",
+    "1,1,0": "dirt",
+    "3,0,0": "dirt",
+    "3,1,0": "dirt",
+    "2,0,0": "dirt",
+    "2,1,0": "dirt_grass1",
+    "1,2,0": "dirt",
+    "2,2,0": "dirt",
+    "3,2,0": "dirt",
+    "1,4,0": "dirt_grass1",
+    "2,4,0": "dirt_grass1",
+    "3,4,0": "dirt_grass1",
+    "3,5,0": "dirt_grass1",
+    "1,5,0": "dirt_grass1",
+    "1,6,0": "dirt_grass1",
+    "2,6,0": "dirt_grass1",
+    "3,6,0": "dirt_grass1",
+    "2,5,0": "dirt"
+  }
+}
