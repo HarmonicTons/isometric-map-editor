@@ -1,8 +1,8 @@
-import { clamp } from "lodash";
 import { Viewport } from "pixi-viewport";
 import type { Ticker } from "pixi.js";
-import { Container, FillGradient, Graphics, Text } from "pixi.js";
+import { Container } from "pixi.js";
 import { engine } from "../../getEngine";
+import { Background } from "./Background";
 import { ControlBar } from "./ControlBar";
 import { Map } from "./Map";
 import mapData from "./maps/deti-plains.json";
@@ -22,6 +22,7 @@ export type CursorAction =
 export class GameScreen extends Container {
   /** Assets bundles required by this screen */
   public static assetBundles = ["game"];
+  public background: Background;
   public controlBar: ControlBar;
 
   public mapContainer: Viewport;
@@ -29,22 +30,12 @@ export class GameScreen extends Container {
   private map: Map;
   public tileFragmentsTextures: TileFragmentsTextures;
   public cursorAction: CursorAction;
-  public title: Text;
 
   constructor() {
     super();
 
-    this.setBackground();
-
-    const title = new Text({
-      text: "Isometric Map Editor",
-    });
-    title.style.fill = "white";
-    title.alpha = 0.5;
-    title.style.fontFamily = "Final Fantasy Tactics Advance";
-    title.anchor.set(1, 1);
-    this.addChild(title);
-    this.title = title;
+    this.background = new Background();
+    this.addChild(this.background);
 
     this.mapContainer = new Viewport({
       events: engine().renderer.events,
@@ -100,24 +91,6 @@ export class GameScreen extends Container {
     this.addChild(this.controlBar);
   }
 
-  public setBackground() {
-    const linearGradient = new FillGradient({
-      type: "linear",
-      start: { x: 0, y: 0 },
-      end: { x: 0, y: 1 },
-      colorStops: [
-        { offset: 0, color: "#54b8f5" },
-        { offset: 1, color: "#d5fcfd" },
-      ],
-      textureSpace: "local",
-    });
-    const background = new Graphics()
-      .rect(0, 0, engine().screen.width, engine().screen.height)
-      .fill(linearGradient);
-    // this.removeChildAt(0);
-    this.addChildAt(background, 0);
-  }
-
   public extractToPng = async () => {
     const base64 = await engine().renderer.extract.base64(this.mapContainer);
     // Download as PNG
@@ -164,14 +137,8 @@ export class GameScreen extends Container {
 
   /** Resize the screen, fired whenever window size changes */
   public resize(width: number, height: number) {
-    const isLandscape = width > height;
-    this.setBackground();
-
-    this.title.style.fontSize = clamp(Math.floor(width / 15), 45, 120);
-    this.title.anchor.set(1, isLandscape ? 1 : 0);
-    this.title.x = isLandscape ? width - 32 : width - 12;
-    this.title.y = isLandscape ? height - 32 : 0;
-
+    this.background.resize(width, height);
+    this.mapContainer.resize(width, height);
     this.controlBar.resize(width, height);
   }
 

@@ -132,6 +132,8 @@ export class CreationResizePlugin {
       window.scrollTo(0, 0);
 
       app.renderer.resize(width, height);
+
+      app.render();
     };
 
     this._cancelResize = (): void => {
