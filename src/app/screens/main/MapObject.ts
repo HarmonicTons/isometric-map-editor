@@ -22,8 +22,6 @@ export class MapObject extends Sprite {
       );
     }
     // keep pixel art style
-    texture.source.scaleMode = "nearest";
-    texture.source.addressMode = "clamp-to-edge";
 
     super({ texture });
     this.type = type;

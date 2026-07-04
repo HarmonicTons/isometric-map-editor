@@ -1,10 +1,11 @@
-import { orderBy } from "lodash";
 import { Container, FederatedPointerEvent, Point, Ticker } from "pixi.js";
+import { CursorAction } from "./GameScreen";
 import { IsoCoordinates, isoDirections } from "./IsometricCoordinate";
 import { MapObject } from "./MapObject";
 import { Tile } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
-import { CursorAction } from "./GameScreen";
+
+const UMAX = 256;
 
 export type MapData = {
   objects: Record<string, string>;
@@ -39,7 +40,6 @@ export class Map extends Container {
     }
 
     this.updateAllTileNeighborhood();
-    this.sortEntitiesByDepth();
   }
 
   public toJson(): string {
@@ -59,6 +59,7 @@ export class Map extends Container {
     mapObject.y = iso.e * 8 + iso.s * 8 - iso.u * 8 + 24;
     this.objects[iso.toString()] = mapObject;
     this.addChild(mapObject);
+    mapObject.zIndex = iso.paintersOrderKey(UMAX);
 
     mapObject.on("rightdown", (evt) => {
       evt.stopPropagation();
@@ -100,6 +101,7 @@ export class Map extends Container {
     tile.y = iso.e * 8 + iso.s * 8 - iso.u * 8;
     this.tiles[iso.toString()] = tile;
     this.addChild(tile);
+    tile.zIndex = iso.paintersOrderKey(UMAX);
 
     tile.on("rightdown", (evt) => {
       evt.stopPropagation();
@@ -188,21 +190,6 @@ export class Map extends Container {
     }
   }
 
-  private get entities(): (Tile | MapObject)[] {
-    return [...Object.values(this.tiles), ...Object.values(this.objects)];
-  }
-
-  private sortEntitiesByDepth() {
-    // painter's order: anti-diagonal (s+e), then height (u) 
-    const sortedEntities = orderBy(this.entities, [
-      (entity) => entity.isoCoordinates.s + entity.isoCoordinates.e,
-      "isoCoordinates.u",
-    ]);
-    for (let i = 0; i < sortedEntities.length; i++) {
-      this.setChildIndex(sortedEntities[i], i);
-    }
-  }
-
   public addTileAt(iso: IsoCoordinates, type: string) {
     if (this.getEntityAt(iso)) {
       console.warn("Entity already exists at", iso.s, iso.e, iso.u);
@@ -211,8 +198,6 @@ export class Map extends Container {
     console.info("adding tile at", iso.s, iso.e, iso.u);
     this.createTile(iso, type);
 
-    // Reorder the tiles
-    this.sortEntitiesByDepth();
     // Update neighborhood
     this.updateTileNeighbors(iso);
   }
@@ -224,9 +209,6 @@ export class Map extends Container {
     }
     console.info("adding map object at", iso.s, iso.e, iso.u);
     this.createObject(iso, type);
-
-    // Reorder the tiles
-    this.sortEntitiesByDepth();
   }
 
   /**

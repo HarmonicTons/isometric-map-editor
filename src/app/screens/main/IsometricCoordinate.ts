@@ -46,4 +46,8 @@ export class IsoCoordinates {
   public move(direction: IsoDirection) {
     return this.add(IsoCoordinates.directionsOffsets[direction]);
   }
+
+  public paintersOrderKey(uMax: number) {
+    return (this.s + this.e) * uMax + this.u;
+  }
 }

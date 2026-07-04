@@ -200,9 +200,6 @@ export class TileFragmentsTextures {
     if (!texture) {
       return null;
     }
-    // keep pixel art style
-    texture.source.scaleMode = "nearest";
-    texture.source.addressMode = "clamp-to-edge";
     return texture;
   }
 }

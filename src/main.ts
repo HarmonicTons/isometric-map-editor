@@ -1,3 +1,4 @@
+import { TextureStyle } from "pixi.js";
 import { setEngine } from "./app/getEngine";
 import { LoadScreen } from "./app/screens/LoadScreen";
 import { GameScreen } from "./app/screens/main/GameScreen";
@@ -20,6 +21,9 @@ if ("serviceWorker" in navigator) {
 (async () => {
   // Ensure the font is loaded before starting the application
   await document.fonts.load('1em "Final Fantasy Tactics Advance"');
+  // Keep pixel art style
+  TextureStyle.defaultOptions.scaleMode = "nearest";
+  TextureStyle.defaultOptions.addressMode = "clamp-to-edge";
   // Create a new creation engine instance
   const engine = new CreationEngine();
   setEngine(engine);

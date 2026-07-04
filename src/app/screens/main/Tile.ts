@@ -103,19 +103,13 @@ export class Tile extends Container {
    */
   private addCursor() {
     const cursorUTexture = Texture.from("cursor-u.png");
-    cursorUTexture.source.scaleMode = "nearest";
-    cursorUTexture.source.addressMode = "clamp-to-edge";
     const cursorUSprite = new Sprite(cursorUTexture);
 
     const cursorETexture = Texture.from("cursor-e.png");
-    cursorETexture.source.scaleMode = "nearest";
-    cursorETexture.source.addressMode = "clamp-to-edge";
     const cursorESprite = new Sprite(cursorETexture);
     cursorESprite.anchor.set(-1, -0.5);
 
     const cursorSTexture = Texture.from("cursor-s.png");
-    cursorSTexture.source.scaleMode = "nearest";
-    cursorSTexture.source.addressMode = "clamp-to-edge";
     const cursorSSprite = new Sprite(cursorSTexture);
     cursorSSprite.anchor.set(0, -0.5);
 

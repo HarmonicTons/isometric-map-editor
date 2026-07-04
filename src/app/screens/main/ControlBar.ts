@@ -98,10 +98,8 @@ export class ControlBar extends Container {
     //   this.extractToJson();
     // });
     // this.addChild(downloadJsonButton);
-    // this.controls.push(downloadJsonButton);
+    // this.controls.push(downloadJsonButton)
 
-    const eraserSprite = Sprite.from("game/eraser.png");
-    eraserSprite.texture.source.scaleMode = "nearest";
     const removeButton = new FancyButton({
       defaultView: Sprite.from("game/eraser.png"),
       scale: 1.8,
