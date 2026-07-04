@@ -4,8 +4,7 @@ import { Container } from "pixi.js";
 import { engine } from "../../getEngine";
 import { Background } from "./Background";
 import { ControlBar } from "./ControlBar";
-import { Map } from "./Map";
-import mapData from "./maps/deti-plains.json";
+import { Map, MapData } from "./Map";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 
 export type CursorAction =
@@ -27,7 +26,7 @@ export class GameScreen extends Container {
 
   public mapContainer: Viewport;
   private paused = false;
-  private map: Map;
+  private map?: Map;
   public tileFragmentsTextures: TileFragmentsTextures;
   public cursorAction: CursorAction;
 
@@ -57,13 +56,6 @@ export class GameScreen extends Container {
       type: "dirt",
       mode: "add",
     };
-    const map = new Map(
-      mapData,
-      () => this.cursorAction,
-      this.tileFragmentsTextures
-    );
-    this.map = map;
-    this.mapContainer.addChild(map);
 
     this.controlBar = new ControlBar({
       getCursorAction: () => this.cursorAction,
@@ -101,6 +93,7 @@ export class GameScreen extends Container {
   };
 
   public extractToJson = async () => {
+    if (!this.map) return;
     const json = this.map.toJson();
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -111,12 +104,20 @@ export class GameScreen extends Container {
   };
 
   /** Prepare the screen just before showing */
-  public prepare() {}
+  public prepare(mapData: MapData) {
+    this.map?.destroy({ children: true });
+    this.map = new Map(
+      mapData,
+      () => this.cursorAction,
+      this.tileFragmentsTextures
+    );
+    this.mapContainer.addChild(this.map);
+  }
 
   /** Update the screen */
 
   public update(time: Ticker) {
-    if (this.paused) return;
+    if (this.paused || !this.map) return;
     this.map.update(time);
   }
 

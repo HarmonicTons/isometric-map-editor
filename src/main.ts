@@ -44,6 +44,13 @@ if ("serviceWorker" in navigator) {
 
   // Show the load screen
   await engine.navigation.showScreen(LoadScreen);
+  // Load the map in queryparams from the JSON file
+  const params = new URLSearchParams(window.location.search);
+  const mapName = params.get("map") ?? "deti-plains";
+  const mapData = await fetch(`${import.meta.env.BASE_URL}maps/${mapName}.json`).then((res) => res.json()).catch(() => {
+    console.error(`Failed to load map data for ${mapName}`);
+    return { tiles: {"0,0,0": "dirt"}, objects: {} };
+  });
   // Show the main screen once the load screen is dismissed
-  await engine.navigation.showScreen(GameScreen);
+  await engine.navigation.showScreen(GameScreen, mapData);
 })();

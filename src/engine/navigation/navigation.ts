@@ -14,7 +14,7 @@ interface AppScreen extends Container {
   /** Resume the screen */
   resume?(): Promise<void>;
   /** Prepare screen, before showing */
-  prepare?(): void;
+  prepare?(data?: unknown): void;
   /** Reset screen, after hidden */
   reset?(): void;
   /** Update the screen, passing delta time/step */
@@ -69,7 +69,7 @@ export class Navigation {
   }
 
   /** Add screen to the stage, link update & resize functions */
-  private async addAndShowScreen(screen: AppScreen) {
+  private async addAndShowScreen(screen: AppScreen, data?: unknown) {
     // Add navigation container to stage if it does not have a parent yet
     if (!this.container.parent) {
       this.app.stage.addChild(this.container);
@@ -80,7 +80,7 @@ export class Navigation {
 
     // Setup things and pre-organise screen before showing
     if (screen.prepare) {
-      screen.prepare();
+      screen.prepare(data);
     }
 
     // Add screen's resize handler, if available
@@ -132,7 +132,7 @@ export class Navigation {
    * Hide current screen (if there is one) and present a new screen.
    * Any class that matches AppScreen interface can be used here.
    */
-  public async showScreen(ctor: AppScreenConstructor) {
+  public async showScreen(ctor: AppScreenConstructor, data?: unknown) {
     // Block interactivity in current screen
     if (this.currentScreen) {
       this.currentScreen.interactiveChildren = false;
@@ -159,7 +159,7 @@ export class Navigation {
 
     // Create the new screen and add that to the stage
     this.currentScreen = BigPool.get(ctor);
-    await this.addAndShowScreen(this.currentScreen);
+    await this.addAndShowScreen(this.currentScreen, data);
   }
 
   /**
