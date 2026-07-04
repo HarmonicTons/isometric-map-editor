@@ -39,7 +39,7 @@ export class Map extends Container {
     }
 
     this.updateAllTileNeighborhood();
-    this.sortEntities();
+    this.sortEntitiesByDepth();
   }
 
   public toJson(): string {
@@ -192,10 +192,10 @@ export class Map extends Container {
     return [...Object.values(this.tiles), ...Object.values(this.objects)];
   }
 
-  private sortEntities() {
+  private sortEntitiesByDepth() {
+    // painter's order: anti-diagonal (s+e), then height (u) 
     const sortedEntities = orderBy(this.entities, [
-      "isoCoordinates.s",
-      "isoCoordinates.e",
+      (entity) => entity.isoCoordinates.s + entity.isoCoordinates.e,
       "isoCoordinates.u",
     ]);
     for (let i = 0; i < sortedEntities.length; i++) {
@@ -212,7 +212,7 @@ export class Map extends Container {
     this.createTile(iso, type);
 
     // Reorder the tiles
-    this.sortEntities();
+    this.sortEntitiesByDepth();
     // Update neighborhood
     this.updateTileNeighbors(iso);
   }
@@ -226,7 +226,7 @@ export class Map extends Container {
     this.createObject(iso, type);
 
     // Reorder the tiles
-    this.sortEntities();
+    this.sortEntitiesByDepth();
   }
 
   /**
