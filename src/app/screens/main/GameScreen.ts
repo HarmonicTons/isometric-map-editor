@@ -52,11 +52,6 @@ export class GameScreen extends Container {
       const local = this.map?.toLocal(evt.global);
       this.map?.updatePointerPosition(local);
     });
-    this.mapContainer.on("rightdown", (evt) => {
-      evt.stopPropagation();
-      const local = this.map?.toLocal(evt.global);
-      this.map?.removeEntityAtPointerPosition(local);
-    });
     let startPos: Point | null = null;
     this.mapContainer
       .on("pointerdown", (evt) => {
@@ -65,13 +60,17 @@ export class GameScreen extends Container {
       .on("pointerup", (evt) => {
         const endPos = evt.global;
         if (startPos === null) return;
+        // drag protection
         const moved =
-          Math.abs(endPos.x - startPos.x) + Math.abs(endPos.y - startPos.y) > 5;
+          Math.abs(endPos.x - startPos.x) + Math.abs(endPos.y - startPos.y) > 6;
         startPos = null;
         if (moved) return;
+        const isWheelClick = evt.button === 1;
+        if (isWheelClick) return;
+        const isRightClick = evt.button === 2;
         const action = this.cursorAction;
         const local = this.map?.toLocal(evt.global);
-        if (action.mode === "remove") {
+        if (isRightClick || action.mode === "remove") {
           this.map?.removeEntityAtPointerPosition(local);
           return;
         }
