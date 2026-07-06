@@ -126,7 +126,7 @@ export class ControlBar extends Container {
           localIsoCoordinates,
           globalIsoCoordinates,
           type,
-          getTileNeighbor: () => undefined,
+          getTileTypeAt: () => undefined,
           tileFragmentsTextures,
           chunk: undefined as unknown as MapChunk,
         }),
@@ -145,8 +145,9 @@ export class ControlBar extends Container {
     mapObjects.forEach((type) => {
       const button = new FancyButton({
         defaultView: new MapObject({
-          isoCoordinates: localIsoCoordinates,
+          globalIsoCoordinates,
           type,
+          occupiedCells: [],
         }),
         scale: 1.5,
         anchor: 0.5,

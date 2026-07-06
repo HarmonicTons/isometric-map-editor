@@ -1,8 +1,7 @@
 import { maxBy, sumBy } from "lodash";
 import { Assets, Texture } from "pixi.js";
 import { IsoCoordinates } from "./IsometricCoordinate";
-import { GetTileNeighbor } from "./Tile";
-import { TileFragmentKey } from "./TileFragment";
+import { GetTileNeighbor, TileFragmentKey } from "./TileFragment";
 
 export type TextureData = {
   name: string;

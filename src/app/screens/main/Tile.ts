@@ -10,9 +10,7 @@ import { TileFragment, tileFragmentKeys } from "./TileFragment";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 import type { MapChunk } from "./MapChunk";
 
-export type GetTileNeighbor = (
-  relativeCoordinates: IsoCoordinates
-) => string | undefined;
+export type GetTileTypeAt = (iso: GlobalIsoCoordinates) => string | undefined;
 
 /**
  * An isometric tile
@@ -22,7 +20,7 @@ export class Tile extends Container {
   public localIsoCoordinates: LocalIsoCoordinates;
   public globalIsoCoordinates: GlobalIsoCoordinates;
   public tileFragmentsTextures: TileFragmentsTextures;
-  public getTileNeighbor: GetTileNeighbor;
+  public getTileTypeAt: GetTileTypeAt;
   public cursorSprites: Record<VisibleIsoDirection, Sprite> = {} as Record<
     VisibleIsoDirection,
     Sprite
@@ -30,7 +28,7 @@ export class Tile extends Container {
   public chunk: MapChunk;
   constructor({
     type,
-    getTileNeighbor,
+    getTileTypeAt,
     localIsoCoordinates,
     globalIsoCoordinates,
     tileFragmentsTextures,
@@ -41,7 +39,7 @@ export class Tile extends Container {
      * the type, ex: wall or stone
      */
     type: string;
-    getTileNeighbor: GetTileNeighbor;
+    getTileTypeAt: GetTileTypeAt;
     localIsoCoordinates: LocalIsoCoordinates;
     globalIsoCoordinates: GlobalIsoCoordinates;
     tileFragmentsTextures: TileFragmentsTextures;
@@ -53,7 +51,7 @@ export class Tile extends Container {
     this.localIsoCoordinates = localIsoCoordinates;
     this.globalIsoCoordinates = globalIsoCoordinates;
     this.tileFragmentsTextures = tileFragmentsTextures;
-    this.getTileNeighbor = getTileNeighbor;
+    this.getTileTypeAt = getTileTypeAt;
     this.chunk = chunk;
     this.eventMode = "none";
 
@@ -94,7 +92,8 @@ export class Tile extends Container {
         const fragment = new TileFragment({
           type: this.type,
           key,
-          getTileNeighbor: this.getTileNeighbor,
+          getTileNeighbor: (relative: IsoCoordinates) =>
+            this.getTileTypeAt(this.globalIsoCoordinates.add(relative)),
           height: this.globalIsoCoordinates.u,
           tileFragmentsTextures: this.tileFragmentsTextures,
         });

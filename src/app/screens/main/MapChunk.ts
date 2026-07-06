@@ -8,10 +8,7 @@ import { MapObject } from "./MapObject";
 import { Tile } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 
-export type MapChunkData = {
-  objects: Record<string, string>;
-  tiles: Record<string, string>;
-};
+export type ChunkTileData = Record<string, string>;
 
 /**
  * A fixed-size cubic section of the map.
@@ -22,39 +19,27 @@ export type MapChunkData = {
  * must go through Map, the single authority on global coordinates.
  */
 export class MapChunk extends Container {
-  public tiles: Record<string, Tile> = {};
-  public objects: Record<string, MapObject> = {};
+  public entities: Record<string, Tile | MapObject> = {};
 
   constructor(
     public size: number,
-    chunkData: MapChunkData,
+    chunkTileData: ChunkTileData,
     public tileFragmentsTextures: TileFragmentsTextures,
-    private getTileByGlobalCoordinates: (
-      iso: GlobalIsoCoordinates
-    ) => Tile | undefined,
+    private getTileTypeAt: (iso: GlobalIsoCoordinates) => string | undefined,
     public readonly chunkIsoCoordinates: ChunkIsoCoordinates
   ) {
     super();
     this.eventMode = "none";
     this.sortableChildren = true;
-    const { tiles, objects } = chunkData;
-    for (const key in tiles) {
-      const type = tiles[key];
+    for (const key in chunkTileData) {
+      const type = chunkTileData[key];
       if (!type) continue;
       this.createTile(LocalIsoCoordinates.fromString(key), type, true);
-    }
-    for (const key in objects) {
-      const type = objects[key];
-      if (!type) continue;
-      this.createObject(LocalIsoCoordinates.fromString(key), type);
     }
   }
 
   public get isEmpty(): boolean {
-    return (
-      Object.keys(this.tiles).length === 0 &&
-      Object.keys(this.objects).length === 0
-    );
+    return Object.keys(this.entities).length === 0;
   }
 
   private assertInside(iso: LocalIsoCoordinates) {
@@ -82,18 +67,9 @@ export class MapChunk extends Container {
     );
   }
 
-  public getTileAt(iso: LocalIsoCoordinates): Tile | undefined {
-    this.assertInside(iso);
-    return this.tiles[iso.toString()];
-  }
-
-  public getMapObjectAt(iso: LocalIsoCoordinates): MapObject | undefined {
-    this.assertInside(iso);
-    return this.objects[iso.toString()];
-  }
-
   public getEntityAt(iso: LocalIsoCoordinates): Tile | MapObject | undefined {
-    return this.getTileAt(iso) || this.getMapObjectAt(iso);
+    this.assertInside(iso);
+    return this.entities[iso.toString()];
   }
 
   public createTile(
@@ -105,9 +81,7 @@ export class MapChunk extends Container {
     const globalIso = this.toGlobalIsoCoordinates(iso);
     const tile = new Tile({
       type,
-      getTileNeighbor: (relativeCoordinates) =>
-        this.getTileByGlobalCoordinates(globalIso.add(relativeCoordinates))
-          ?.type,
+      getTileTypeAt: this.getTileTypeAt,
       localIsoCoordinates: iso,
       globalIsoCoordinates: globalIso,
       tileFragmentsTextures: this.tileFragmentsTextures,
@@ -118,37 +92,42 @@ export class MapChunk extends Container {
     tile.x = xy.x;
     tile.y = xy.y;
     tile.zIndex = iso.paintersOrderKey(this.size);
-    this.tiles[iso.toString()] = tile;
+    this.entities[iso.toString()] = tile;
     if (!skipFragmentsSetup) {
       this.syncTileAttachment(tile);
     }
     return tile;
   }
 
-  public createObject(iso: LocalIsoCoordinates, type: string): MapObject {
+  public registerMapObjectAt(
+    iso: LocalIsoCoordinates,
+    entity: MapObject
+  ) {
     this.assertInside(iso);
-    const mapObject = new MapObject({ type, isoCoordinates: iso });
-    const xy = iso.toXY();
-    mapObject.x = xy.x;
-    mapObject.y = xy.y + 24;
-    mapObject.zIndex = iso.paintersOrderKey(this.size);
-    this.objects[iso.toString()] = mapObject;
-    this.addChild(mapObject);
-    return mapObject;
+    this.entities[iso.toString()] = entity;
   }
+
+  public unregisterMapObjectAt(iso: LocalIsoCoordinates) {
+    this.assertInside(iso);
+    delete this.entities[iso.toString()];
+  }
+
+  // public createObject(iso: LocalIsoCoordinates, type: string): MapObject {
+  // const mapObject = new MapObject({ type, isoCoordinates: iso });
+  // const xy = iso.toXY();
+  // mapObject.x = xy.x;
+  // mapObject.y = xy.y + 24;
+  // mapObject.zIndex = iso.paintersOrderKey(this.size);
+  // this.objects[iso.toString()] = mapObject;
+  // this.addChild(mapObject);
+  // return mapObject;
+  // }
 
   public removeTileAt(iso: LocalIsoCoordinates) {
-    const existingTile = this.getTileAt(iso);
-    if (!existingTile) return;
-    delete this.tiles[iso.toString()];
-    existingTile.destroy({ children: true });
-  }
-
-  public removeMapObjectAt(iso: LocalIsoCoordinates) {
-    const existingObject = this.getMapObjectAt(iso);
-    if (!existingObject) return;
-    delete this.objects[iso.toString()];
-    existingObject.destroy({ children: true });
+    const existingEntity = this.getEntityAt(iso);
+    if (!existingEntity) return;
+    delete this.entities[iso.toString()];
+    existingEntity.destroy({ children: true });
   }
 
   /**
@@ -169,19 +148,23 @@ export class MapChunk extends Container {
   }
 
   public updateAllTileNeighborhood() {
-    for (const key in this.tiles) {
-      this.refreshTile(this.tiles[key]);
+    for (const key in this.entities) {
+      const entity = this.entities[key];
+      if (entity instanceof Tile) {
+        this.refreshTile(entity);
+      }
     }
   }
 
   /** Buried tiles are detached from the scene graph: destroy them explicitly. */
   public override destroy(options?: DestroyOptions) {
-    for (const key in this.tiles) {
-      const tile = this.tiles[key];
-      if (!tile.parent) tile.destroy({ children: true });
+    for (const key in this.entities) {
+      const entity = this.entities[key];
+      if (entity instanceof Tile && !entity.parent) {
+        entity.destroy({ children: true });
+      }
     }
-    this.tiles = {};
-    this.objects = {};
+    this.entities = {};
     super.destroy(options);
   }
 

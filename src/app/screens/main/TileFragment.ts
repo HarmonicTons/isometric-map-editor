@@ -1,7 +1,7 @@
 import { Sprite } from "pixi.js";
 import { NoTextureFoundError } from "./NoTextureFoundError";
-import { GetTileNeighbor } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
+import { IsoCoordinates } from "./IsometricCoordinate";
 
 /**
  * The name of the 12 tileFragments of a tile
@@ -21,6 +21,12 @@ export const tileFragmentKeys = [
   "34",
 ] as const;
 export type TileFragmentKey = (typeof tileFragmentKeys)[number];
+
+/**
+ * Resolve the type of a neighboring tile from coordinates relative to the
+ * fragment's own tile.
+ */
+export type GetTileNeighbor = (relative: IsoCoordinates) => string | undefined;
 
 /**
  * The X,Y position of each fragment

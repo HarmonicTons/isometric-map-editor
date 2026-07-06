@@ -6,7 +6,7 @@ import {
   LocalIsoCoordinates,
   VisibleIsoDirection,
 } from "./IsometricCoordinate";
-import { MapChunk, MapChunkData } from "./MapChunk";
+import { ChunkTileData, MapChunk } from "./MapChunk";
 import { MapObject } from "./MapObject";
 import { Tile } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
@@ -29,7 +29,10 @@ export type MapData = {
 export class Map extends Container {
   public chunks: Record<string, MapChunk> = {};
   private chunksSize: number = 8;
-  public hoveredTile?: { tile: Tile; side: VisibleIsoDirection };
+  public hoveredEntity?: {
+    entity: Tile | MapObject;
+    side: VisibleIsoDirection;
+  };
 
   constructor(
     mapData: MapData,
@@ -41,24 +44,16 @@ export class Map extends Container {
     this.sortableChildren = true;
 
     // Group the map data by chunk
-    const chunksData: Record<string, MapChunkData> = {};
-    const chunkDataFor = (globalIso: GlobalIsoCoordinates): MapChunkData => {
+    const chunksData: Record<string, ChunkTileData> = {};
+    const chunkDataFor = (globalIso: GlobalIsoCoordinates): ChunkTileData => {
       const chunkKey = this.toChunkIso(globalIso).toString();
-      return (chunksData[chunkKey] ??= { tiles: {}, objects: {} });
+      return (chunksData[chunkKey] ??= {});
     };
     for (const key in mapData.tiles) {
       const type = mapData.tiles[key];
       if (!type) continue;
       const globalIso = GlobalIsoCoordinates.fromString(key);
-      chunkDataFor(globalIso).tiles[this.toLocalIso(globalIso).toString()] =
-        type;
-    }
-    for (const key in mapData.objects) {
-      const type = mapData.objects[key];
-      if (!type) continue;
-      const globalIso = GlobalIsoCoordinates.fromString(key);
-      chunkDataFor(globalIso).objects[this.toLocalIso(globalIso).toString()] =
-        type;
+      chunkDataFor(globalIso)[this.toLocalIso(globalIso).toString()] = type;
     }
 
     for (const chunkKey in chunksData) {
@@ -69,24 +64,13 @@ export class Map extends Container {
     }
 
     this.updateAllTileNeighborhood();
-  }
 
-  public toJson(): string {
-    const result: MapData = { objects: {}, tiles: {} };
-    for (const chunkKey in this.chunks) {
-      const chunk = this.chunks[chunkKey];
-      for (const key in chunk.tiles) {
-        const tile = chunk.tiles[key];
-        result.tiles[tile.globalIsoCoordinates.toString()] = tile.type;
-      }
-      for (const key in chunk.objects) {
-        const globalIso = chunk.toGlobalIsoCoordinates(
-          LocalIsoCoordinates.fromString(key)
-        );
-        result.objects[globalIso.toString()] = chunk.objects[key].type;
-      }
+    for (const key in mapData.objects) {
+      const type = mapData.objects[key];
+      if (!type) continue;
+      const globalIso = GlobalIsoCoordinates.fromString(key);
+      this.addMapObjectAt(globalIso, type);
     }
-    return JSON.stringify(result);
   }
 
   private toChunkIso(iso: GlobalIsoCoordinates): ChunkIsoCoordinates {
@@ -110,25 +94,15 @@ export class Map extends Container {
   }
 
   private getOrCreateChunkAt(iso: GlobalIsoCoordinates): MapChunk {
-    return (
-      this.getChunkAt(iso) ??
-      this.createChunk(this.toChunkIso(iso), { tiles: {}, objects: {} })
-    );
-  }
-
-  public getTileAt(iso: GlobalIsoCoordinates): Tile | undefined {
-    return this.getChunkAt(iso)?.getTileAt(this.toLocalIso(iso));
-  }
-
-  public getMapObjectAt(iso: GlobalIsoCoordinates): MapObject | undefined {
-    return this.getChunkAt(iso)?.getMapObjectAt(this.toLocalIso(iso));
+    return this.getChunkAt(iso) ?? this.createChunk(this.toChunkIso(iso), {});
   }
 
   public getEntityAt(iso: GlobalIsoCoordinates): Tile | MapObject | undefined {
-    return this.getTileAt(iso) || this.getMapObjectAt(iso);
+    return this.getChunkAt(iso)?.getEntityAt(this.toLocalIso(iso));
   }
 
   public addTileAt(iso: GlobalIsoCoordinates, type: string) {
+    console.debug(`Adding tile at ${iso.toString()}`);
     if (this.getEntityAt(iso)) {
       console.warn("Entity already exists at", iso.toString());
       return;
@@ -138,35 +112,62 @@ export class Map extends Container {
   }
 
   public addMapObjectAt(iso: GlobalIsoCoordinates, type: string) {
-    if (this.getEntityAt(iso)) {
+    console.debug(`Adding map object at ${iso.toString()}`);
+    const cells = MapObject.getOccupiedCells(type, iso);
+    if (cells.some((cell) => this.getEntityAt(cell))) {
       console.warn("Entity already exists at", iso.toString());
       return;
     }
-    this.getOrCreateChunkAt(iso).createObject(this.toLocalIso(iso), type);
-  }
-
-  public removeTileAt(iso: GlobalIsoCoordinates) {
-    const chunk = this.getChunkAt(iso);
-    if (!chunk) return;
-    const tile = chunk.getTileAt(this.toLocalIso(iso));
-    if (!tile) return;
-    if (this.hoveredTile?.tile === tile) {
-      this.hoveredTile = undefined;
+    const mapObject = new MapObject({
+      type,
+      globalIsoCoordinates: iso,
+      occupiedCells: cells,
+    });
+    for (const cell of cells) {
+      this.getOrCreateChunkAt(cell).registerMapObjectAt(
+        this.toLocalIso(cell),
+        mapObject
+      );
     }
-    chunk.removeTileAt(this.toLocalIso(iso));
-    this.updateTileNeighbors(iso);
-    this.destroyChunkIfEmpty(chunk);
+
+    // for (const span of this.splitCellsByChunk(cells)) {
+    //   span.chunk.addObjectPiece(object, span);
+    // }
   }
 
-  public removeMapObjectAt(iso: GlobalIsoCoordinates) {
+  public removeEntityAt(iso: GlobalIsoCoordinates) {
+    console.debug(`Removing entity at ${iso.toString()}`);
     const chunk = this.getChunkAt(iso);
     if (!chunk) return;
-    chunk.removeMapObjectAt(this.toLocalIso(iso));
-    this.destroyChunkIfEmpty(chunk);
+    const entity = chunk.getEntityAt(this.toLocalIso(iso));
+    if (!entity) return;
+    if (this.hoveredEntity?.entity === entity) {
+      this.hoveredEntity = undefined;
+    }
+    if (entity instanceof Tile) {
+      chunk.removeTileAt(this.toLocalIso(iso));
+      this.updateTileNeighbors(iso);
+      this.destroyChunkIfEmpty(chunk);
+      return;
+    }
+    if (entity instanceof MapObject) {
+      const chunks = new Set<MapChunk>();
+      for (const cell of entity.occupiedCells) {
+        const cellChunk = this.getChunkAt(cell);
+        if (!cellChunk) continue;
+        chunks.add(cellChunk);
+        cellChunk.unregisterMapObjectAt(this.toLocalIso(cell));
+      }
+      entity.destroy({ children: true });
+      chunks.forEach((chunk) => this.destroyChunkIfEmpty(chunk));
+    }
   }
 
   private destroyChunkIfEmpty(chunk: MapChunk) {
     if (!chunk.isEmpty) return;
+    console.debug(
+      `Destroying empty chunk at ${chunk.chunkIsoCoordinates.toString()}`
+    );
     delete this.chunks[chunk.chunkIsoCoordinates.toString()];
     chunk.destroy({ children: true });
   }
@@ -190,8 +191,8 @@ export class Map extends Container {
   }
 
   private refreshTileAt(iso: GlobalIsoCoordinates) {
-    const tile = this.getTileAt(iso);
-    if (tile) {
+    const tile = this.getEntityAt(iso);
+    if (tile instanceof Tile) {
       tile.chunk.refreshTile(tile);
     }
   }
@@ -204,13 +205,18 @@ export class Map extends Container {
 
   private createChunk(
     chunkIso: ChunkIsoCoordinates,
-    chunkData: MapChunkData
+    chunkTileData: ChunkTileData
   ): MapChunk {
+    console.debug(`Creating chunk at ${chunkIso.toString()}`);
+    const getTileTypeAt = (iso: GlobalIsoCoordinates): string | undefined => {
+      const entity = this.getEntityAt(iso);
+      return entity instanceof Tile ? entity.type : undefined;
+    };
     const chunk = new MapChunk(
       this.chunksSize,
-      chunkData,
+      chunkTileData,
       this.tileFragmentsTextures,
-      (globalIso) => this.getTileAt(globalIso),
+      getTileTypeAt,
       chunkIso
     );
     const xy = chunkIso.toXY();
@@ -223,12 +229,12 @@ export class Map extends Container {
   }
 
   /**
-   * Amanatides-Woo algorithm to find the first tile under the pointer
+   * Amanatides-Woo algorithm to find the first occupied cell under the pointer
    */
-  public getTileAtPixelPosition(
+  public getEntityAtPixelPosition(
     px: number,
     py: number
-  ): { tile: Tile; side: VisibleIsoDirection } | undefined {
+  ): { entity: Tile | MapObject; side: VisibleIsoDirection } | undefined {
     const w = (px - 16) / 16;
     const m = (py - 8) / 8;
 
@@ -261,8 +267,8 @@ export class Map extends Container {
         side = "east";
       }
 
-      const tile = this.getTileAt(new GlobalIsoCoordinates(si, ei, ui));
-      if (tile) return { tile, side };
+      const entity = this.getEntityAt(new GlobalIsoCoordinates(si, ei, ui));
+      if (entity) return { entity, side };
     }
     return undefined;
   }
@@ -272,31 +278,30 @@ export class Map extends Container {
   ) {
     if (!localPosition) return;
     // find first tile under the pointer
-    const newHoveredTile = this.getTileAtPixelPosition(
+    const newHoveredEntity = this.getEntityAtPixelPosition(
       localPosition.x,
       localPosition.y
     );
 
     if (
-      newHoveredTile?.tile !== this.hoveredTile?.tile ||
-      newHoveredTile?.side !== this.hoveredTile?.side
+      newHoveredEntity?.entity !== this.hoveredEntity?.entity ||
+      newHoveredEntity?.side !== this.hoveredEntity?.side
     ) {
-      if (this.hoveredTile) {
-        this.hoveredTile.tile.setHovered(false, undefined);
+      if (this.hoveredEntity?.entity instanceof Tile) {
+        this.hoveredEntity.entity.setHovered(false, undefined);
       }
-      if (newHoveredTile) {
-        newHoveredTile.tile.setHovered(true, newHoveredTile.side);
+      if (newHoveredEntity?.entity instanceof Tile) {
+        newHoveredEntity.entity.setHovered(true, newHoveredEntity.side);
       }
     }
-
-    this.hoveredTile = newHoveredTile;
+    this.hoveredEntity = newHoveredEntity;
   }
 
   public removeEntityAtPointerPosition(
     localPosition: { x: number; y: number } | undefined
   ) {
-    if (!this.hoveredTile) return;
-    this.removeTileAt(this.hoveredTile.tile.globalIsoCoordinates);
+    if (!this.hoveredEntity) return;
+    this.removeEntityAt(this.hoveredEntity.entity.globalIsoCoordinates);
     this.updatePointerPosition(localPosition);
   }
 
@@ -305,9 +310,13 @@ export class Map extends Container {
     entityType: "tile" | "object",
     type: string
   ) {
-    if (!this.hoveredTile) return;
-    const { tile, side } = this.hoveredTile;
-    const target = tile.globalIsoCoordinates.move(side);
+    if (!this.hoveredEntity) return;
+    const { entity, side } = this.hoveredEntity;
+    if (entity instanceof MapObject) {
+      // TODO add from an object is disabled because no UI element show that it's possible
+      return;
+    }
+    const target = entity.globalIsoCoordinates.move(side);
     if (entityType === "tile") {
       this.addTileAt(target, type);
     } else if (entityType === "object") {
