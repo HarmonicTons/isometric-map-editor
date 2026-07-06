@@ -292,12 +292,19 @@ export class Map extends Container {
     this.hoveredTile = newHoveredTile;
   }
 
-  public removeHoveredEntity() {
+  public removeEntityAtPointerPosition(
+    localPosition: { x: number; y: number } | undefined
+  ) {
     if (!this.hoveredTile) return;
     this.removeTileAt(this.hoveredTile.tile.globalIsoCoordinates);
+    this.updatePointerPosition(localPosition);
   }
 
-  public addEntityAtHovered(entityType: "tile" | "object", type: string) {
+  public addEntityAtPointerPosition(
+    localPosition: { x: number; y: number } | undefined,
+    entityType: "tile" | "object",
+    type: string
+  ) {
     if (!this.hoveredTile) return;
     const { tile, side } = this.hoveredTile;
     const target = tile.globalIsoCoordinates.move(side);
@@ -306,6 +313,7 @@ export class Map extends Container {
     } else if (entityType === "object") {
       this.addMapObjectAt(target, type);
     }
+    this.updatePointerPosition(localPosition);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

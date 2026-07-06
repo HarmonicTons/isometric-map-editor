@@ -48,13 +48,14 @@ export class GameScreen extends Container {
     const centerY = Math.round(engine().screen.height * 0.5);
     this.mapContainer.x = centerX;
     this.mapContainer.y = centerY;
-    this.mapContainer.on("pointermove", (event) => {
-      const local = this.map?.toLocal(event.global);
+    this.mapContainer.on("pointermove", (evt) => {
+      const local = this.map?.toLocal(evt.global);
       this.map?.updatePointerPosition(local);
     });
     this.mapContainer.on("rightdown", (evt) => {
       evt.stopPropagation();
-      this.map?.removeHoveredEntity();
+      const local = this.map?.toLocal(evt.global);
+      this.map?.removeEntityAtPointerPosition(local);
     });
     let startPos: Point | null = null;
     this.mapContainer
@@ -69,11 +70,16 @@ export class GameScreen extends Container {
         startPos = null;
         if (moved) return;
         const action = this.cursorAction;
+        const local = this.map?.toLocal(evt.global);
         if (action.mode === "remove") {
-          this.map?.removeHoveredEntity();
+          this.map?.removeEntityAtPointerPosition(local);
           return;
         }
-        this.map?.addEntityAtHovered(action.entityType, action.type);
+        this.map?.addEntityAtPointerPosition(
+          local,
+          action.entityType,
+          action.type
+        );
       });
 
     this.tileFragmentsTextures = new TileFragmentsTextures();
