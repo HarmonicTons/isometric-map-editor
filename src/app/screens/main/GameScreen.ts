@@ -1,5 +1,5 @@
 import { Viewport } from "pixi-viewport";
-import type { Ticker } from "pixi.js";
+import type { Point, Ticker } from "pixi.js";
 import { Container } from "pixi.js";
 import { engine } from "../../getEngine";
 import { Background } from "./Background";
@@ -48,6 +48,33 @@ export class GameScreen extends Container {
     const centerY = Math.round(engine().screen.height * 0.5);
     this.mapContainer.x = centerX;
     this.mapContainer.y = centerY;
+    this.mapContainer.on("pointermove", (event) => {
+      const local = this.map?.toLocal(event.global);
+      this.map?.updatePointerPosition(local);
+    });
+    this.mapContainer.on("rightdown", (evt) => {
+      evt.stopPropagation();
+      this.map?.removeHoveredEntity();
+    });
+    let startPos: Point | null = null;
+    this.mapContainer
+      .on("pointerdown", (evt) => {
+        startPos = evt.global.clone();
+      })
+      .on("pointerup", (evt) => {
+        const endPos = evt.global;
+        if (startPos === null) return;
+        const moved =
+          Math.abs(endPos.x - startPos.x) + Math.abs(endPos.y - startPos.y) > 5;
+        startPos = null;
+        if (moved) return;
+        const action = this.cursorAction;
+        if (action.mode === "remove") {
+          this.map?.removeHoveredEntity();
+          return;
+        }
+        this.map?.addEntityAtHovered(action.entityType, action.type);
+      });
 
     this.tileFragmentsTextures = new TileFragmentsTextures();
 
@@ -93,24 +120,20 @@ export class GameScreen extends Container {
   };
 
   public extractToJson = async () => {
-    if (!this.map) return;
-    const json = this.map.toJson();
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "map.json";
-    link.click();
+    // if (!this.map) return;
+    // const json = this.map.toJson();
+    // const blob = new Blob([json], { type: "application/json" });
+    // const url = URL.createObjectURL(blob);
+    // const link = document.createElement("a");
+    // link.href = url;
+    // link.download = "map.json";
+    // link.click();
   };
 
   /** Prepare the screen just before showing */
   public prepare(mapData: MapData) {
     this.map?.destroy({ children: true });
-    this.map = new Map(
-      mapData,
-      () => this.cursorAction,
-      this.tileFragmentsTextures
-    );
+    this.map = new Map(mapData, this.tileFragmentsTextures);
     this.mapContainer.addChild(this.map);
   }
 

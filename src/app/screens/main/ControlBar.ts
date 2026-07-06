@@ -4,8 +4,12 @@ import { Tile } from "./Tile";
 import { engine } from "../../getEngine";
 import { FancyButton } from "@pixi/ui";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
-import { IsoCoordinates } from "./IsometricCoordinate";
+import {
+  GlobalIsoCoordinates,
+  LocalIsoCoordinates,
+} from "./IsometricCoordinate";
 import { CursorAction } from "./GameScreen";
+import { MapChunk } from "./MapChunk";
 
 const buttonAnimations = {
   hover: {
@@ -113,16 +117,18 @@ export class ControlBar extends Container {
     this.addChild(removeButton);
     this.controls.push({ button: removeButton, type: "remove" });
 
-    const isoCoordinates = new IsoCoordinates(0, 0, 0);
+    const localIsoCoordinates = new LocalIsoCoordinates(0, 0, 0);
+    const globalIsoCoordinates = new GlobalIsoCoordinates(0, 0, 0);
 
     tilesets.forEach((type) => {
       const button = new FancyButton({
         defaultView: new Tile({
-          isoCoordinates,
+          localIsoCoordinates,
+          globalIsoCoordinates,
           type,
           getTileNeighbor: () => undefined,
-          disableCursor: true,
           tileFragmentsTextures,
+          chunk: undefined as unknown as MapChunk,
         }),
         scale: 1.5,
         anchor: 0.5,
@@ -139,7 +145,7 @@ export class ControlBar extends Container {
     mapObjects.forEach((type) => {
       const button = new FancyButton({
         defaultView: new MapObject({
-          isoCoordinates,
+          isoCoordinates: localIsoCoordinates,
           type,
         }),
         scale: 1.5,
