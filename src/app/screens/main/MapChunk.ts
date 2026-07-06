@@ -41,7 +41,7 @@ export class MapChunk extends Container {
     for (const key in tiles) {
       const type = tiles[key];
       if (!type) continue;
-      this.createTile(LocalIsoCoordinates.fromString(key), type);
+      this.createTile(LocalIsoCoordinates.fromString(key), type, true);
     }
     for (const key in objects) {
       const type = objects[key];
@@ -96,7 +96,11 @@ export class MapChunk extends Container {
     return this.getTileAt(iso) || this.getMapObjectAt(iso);
   }
 
-  public createTile(iso: LocalIsoCoordinates, type: string): Tile {
+  public createTile(
+    iso: LocalIsoCoordinates,
+    type: string,
+    skipFragmentsSetup = false
+  ): Tile {
     this.assertInside(iso);
     const globalIso = this.toGlobalIsoCoordinates(iso);
     const tile = new Tile({
@@ -108,13 +112,16 @@ export class MapChunk extends Container {
       globalIsoCoordinates: globalIso,
       tileFragmentsTextures: this.tileFragmentsTextures,
       chunk: this,
+      skipFragmentsSetup,
     });
     const xy = iso.toXY();
     tile.x = xy.x;
     tile.y = xy.y;
     tile.zIndex = iso.paintersOrderKey(this.size);
     this.tiles[iso.toString()] = tile;
-    this.syncTileAttachment(tile);
+    if (!skipFragmentsSetup) {
+      this.syncTileAttachment(tile);
+    }
     return tile;
   }
 

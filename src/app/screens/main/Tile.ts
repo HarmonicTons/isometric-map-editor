@@ -35,6 +35,7 @@ export class Tile extends Container {
     globalIsoCoordinates,
     tileFragmentsTextures,
     chunk,
+    skipFragmentsSetup,
   }: {
     /**
      * the type, ex: wall or stone
@@ -45,6 +46,7 @@ export class Tile extends Container {
     globalIsoCoordinates: GlobalIsoCoordinates;
     tileFragmentsTextures: TileFragmentsTextures;
     chunk: MapChunk;
+    skipFragmentsSetup?: boolean;
   }) {
     super();
     this.type = type;
@@ -55,7 +57,9 @@ export class Tile extends Container {
     this.chunk = chunk;
     this.eventMode = "none";
 
-    this.setTileFragments();
+    if (!skipFragmentsSetup) {
+      this.setTileFragments();
+    }
 
     const cursorUTexture = Texture.from("cursor-u.png");
     const cursorUSprite = new Sprite(cursorUTexture);
