@@ -15,7 +15,7 @@ Most of the code can be found in `/src/app/screens/main`
 
 Each tile (32×24 px) is split into 12 8×8 px fragments , in a 3x 4 grid. A fragment is identified by `[LINE][COLUMN]`: `11` is the top left fragment, `34` the bottom right one.
 
-<img alt="Tile fragments" src="./tile-fragments.png" />
+<img alt="Tile fragments" width="320" src="./tile-fragments.png" />
 
 A tileset represents every possible appearance of each fragment, depending on the neighborhood of the tile:
 
