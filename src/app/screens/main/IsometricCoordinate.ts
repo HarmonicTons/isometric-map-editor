@@ -4,6 +4,11 @@
  */
 export const MAP_MAX_HEIGHT = 256;
 
+/**
+ * Stringified iso coordinates.
+ */
+export type IsoString = `${number},${number},${number}`;
+
 export const isoDirections = [
   "up",
   "north",
@@ -47,7 +52,7 @@ export class IsoCoordinates {
     down: new IsoCoordinates(0, 0, -1),
   };
 
-  public toString() {
+  public toString(): IsoString {
     return `${this.s},${this.e},${this.u}`;
   }
 

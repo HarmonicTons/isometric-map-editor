@@ -1,6 +1,6 @@
 import { Container, Graphics, Sprite } from "pixi.js";
-import { MapObject } from "./MapObject";
-import { Tile } from "./Tile";
+import { MapObject, MapObjectType } from "./MapObject";
+import { Tile, TileType } from "./Tile";
 import { engine } from "../../getEngine";
 import { FancyButton } from "@pixi/ui";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
@@ -37,14 +37,14 @@ const tilesets = [
   "dirt_stones",
   "dirt_pile",
   "dirt_bush",
-] as const;
+] as TileType[];
 
 const mapObjects = [
   "flower",
   "small_pine",
   "large_pine",
   "large-rock",
-] as const;
+] as MapObjectType[];
 
 type Control = {
   button: FancyButton;
@@ -64,8 +64,8 @@ export class ControlBar extends Container {
     getCursorAction,
   }: {
     onClickRemove: () => void;
-    onClickTile: (type: string) => void;
-    onClickObject: (type: string) => void;
+    onClickTile: (type: TileType) => void;
+    onClickObject: (type: MapObjectType) => void;
     tileFragmentsTextures: TileFragmentsTextures;
     getCursorAction: () => CursorAction;
   }) {

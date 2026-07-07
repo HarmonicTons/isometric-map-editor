@@ -6,11 +6,18 @@ import { Background } from "./Background";
 import { ControlBar } from "./ControlBar";
 import { Map, MapData } from "./Map";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
+import type { TileType } from "./Tile";
+import type { MapObjectType } from "./MapObject";
 
 export type CursorAction =
   | {
-      entityType: "tile" | "object";
-      type: string;
+      entityType: "tile";
+      type: TileType;
+      mode: "add";
+    }
+  | {
+      entityType: "object";
+      type: MapObjectType;
       mode: "add";
     }
   | {
@@ -74,18 +81,14 @@ export class GameScreen extends Container {
           this.map?.removeEntityAtPointerPosition(local);
           return;
         }
-        this.map?.addEntityAtPointerPosition(
-          local,
-          action.entityType,
-          action.type
-        );
+        this.map?.addEntityAtPointerPosition(local, action);
       });
 
     this.tileFragmentsTextures = new TileFragmentsTextures();
 
     this.cursorAction = {
       entityType: "tile",
-      type: "dirt",
+      type: "dirt" as TileType,
       mode: "add",
     };
 

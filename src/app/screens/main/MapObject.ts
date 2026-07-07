@@ -8,10 +8,15 @@ import { NoTextureFoundError } from "./NoTextureFoundError";
 import type { MapChunk } from "./MapChunk";
 
 /**
+ * The type of a map object (e.g. "large_pine").
+ */
+export type MapObjectType = string & { readonly __brand: "MapObjectType" };
+
+/**
  * An object on the map (tree, rock...).
  */
 export class MapObject extends Sprite {
-  public readonly type: string;
+  public readonly type: MapObjectType;
   public readonly localIsoCoordinates: LocalIsoCoordinates;
   public readonly globalIsoCoordinates: GlobalIsoCoordinates;
   public readonly objectHeight: number;
@@ -24,7 +29,7 @@ export class MapObject extends Sprite {
     globalIsoCoordinates,
     chunk,
   }: {
-    type: string;
+    type: MapObjectType;
     localIsoCoordinates: LocalIsoCoordinates;
     globalIsoCoordinates: GlobalIsoCoordinates;
     chunk: MapChunk;
@@ -41,7 +46,7 @@ export class MapObject extends Sprite {
     this.chunk = chunk;
   }
 
-  public static getTexture(type: string): Texture {
+  public static getTexture(type: MapObjectType): Texture {
     const texture = Texture.from(type + ".png");
     if (!texture) {
       throw new NoTextureFoundError(
@@ -54,7 +59,7 @@ export class MapObject extends Sprite {
   /**
    * Height in cells, derived from the sprite size
    */
-  public static getHeight(type: string): number {
+  public static getHeight(type: MapObjectType): number {
     const texture = MapObject.getTexture(type);
     const isValid = (texture.height - 16) % 8 === 0;
     if (!isValid) {
@@ -66,7 +71,7 @@ export class MapObject extends Sprite {
   }
 
   public static getOccupiedCells(
-    type: string,
+    type: MapObjectType,
     isoCoordinates: GlobalIsoCoordinates
   ): GlobalIsoCoordinates[] {
     const height = MapObject.getHeight(type);

@@ -3,13 +3,14 @@ import {
   ChunkIsoCoordinates,
   GlobalIsoCoordinates,
   isoDirections,
+  IsoString,
   LocalIsoCoordinates,
   MAP_MAX_HEIGHT,
   VisibleIsoDirection,
 } from "./IsometricCoordinate";
-import { ChunkTileData, MapChunk } from "./MapChunk";
-import { MapObject } from "./MapObject";
-import { Tile } from "./Tile";
+import { CellContent, ChunkTileData, MapChunk } from "./MapChunk";
+import { MapObject, MapObjectType } from "./MapObject";
+import { Tile, TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 
 export type MapData = {
@@ -30,7 +31,7 @@ export type MapData = {
  * know about their neighbors.
  */
 export class Map extends Container {
-  public chunks: Record<string, MapChunk> = {};
+  public chunks: Record<IsoString, MapChunk> = {};
   private chunksSize: number = 8;
   public hoveredEntity?: {
     entity: Tile | MapObject;
@@ -53,7 +54,7 @@ export class Map extends Container {
     this.sortableChildren = true;
 
     // Group the map data by chunk
-    const chunksData: Record<string, ChunkTileData> = {};
+    const chunksData: Record<IsoString, ChunkTileData> = {};
     const chunkDataFor = (globalIso: GlobalIsoCoordinates): ChunkTileData => {
       const chunkKey = this.toChunkIso(globalIso).toString();
       return (chunksData[chunkKey] ??= {});
@@ -62,10 +63,11 @@ export class Map extends Container {
       const type = mapData.tiles[key];
       if (!type) continue;
       const globalIso = GlobalIsoCoordinates.fromString(key);
-      chunkDataFor(globalIso)[this.toLocalIso(globalIso).toString()] = type;
+      chunkDataFor(globalIso)[this.toLocalIso(globalIso).toString()] =
+        type as TileType;
     }
 
-    for (const chunkKey in chunksData) {
+    for (const chunkKey of Object.keys(chunksData) as IsoString[]) {
       this.createChunk(
         ChunkIsoCoordinates.fromString(chunkKey),
         chunksData[chunkKey]
@@ -78,7 +80,7 @@ export class Map extends Container {
       const type = mapData.objects[key];
       if (!type) continue;
       const globalIso = GlobalIsoCoordinates.fromString(key);
-      this.addMapObjectAt(globalIso, type);
+      this.addMapObjectAt(globalIso, type as MapObjectType);
     }
 
     const cursorUTexture = Texture.from("cursor-u.png");
@@ -129,18 +131,43 @@ export class Map extends Container {
     return this.getChunkAt(iso) ?? this.createChunk(this.toChunkIso(iso), {});
   }
 
-  public getEntityAt(iso: GlobalIsoCoordinates): Tile | MapObject | undefined {
+  private getCellContentAt(iso: GlobalIsoCoordinates): CellContent | undefined {
     if (!this.isInsideHeightBounds(iso)) return undefined;
-    return this.getChunkAt(iso)?.getEntityAt(this.toLocalIso(iso));
+    return this.getChunkAt(iso)?.getCellAt(this.toLocalIso(iso));
   }
 
-  public addTileAt(iso: GlobalIsoCoordinates, type: string) {
+  public isCellOccupied(iso: GlobalIsoCoordinates): boolean {
+    return this.getCellContentAt(iso) !== undefined;
+  }
+
+  public getTileTypeAt(iso: GlobalIsoCoordinates): TileType | undefined {
+    const cell = this.getCellContentAt(iso);
+    if (typeof cell === "string") return cell;
+    return cell instanceof Tile ? cell.type : undefined;
+  }
+
+  public getEntityAt(iso: GlobalIsoCoordinates): Tile | MapObject | undefined {
+    const cell = this.getCellContentAt(iso);
+    return typeof cell === "string" ? undefined : cell;
+  }
+
+  /**
+   * A tile cell deserves a display object iff at least one of its direct
+   * neighbors is not a tile (its fragments can only be visible in that case)
+   */
+  private isInShell(iso: GlobalIsoCoordinates): boolean {
+    return isoDirections.some(
+      (direction) => this.getTileTypeAt(iso.move(direction)) === undefined
+    );
+  }
+
+  public addTileAt(iso: GlobalIsoCoordinates, type: TileType) {
     console.debug(`Adding tile at ${iso.toString()}`);
     if (!this.isInsideHeightBounds(iso)) {
       console.warn("Tile exceeds map height bounds at", iso.toString());
       return;
     }
-    if (this.getEntityAt(iso)) {
+    if (this.isCellOccupied(iso)) {
       console.warn("Entity already exists at", iso.toString());
       return;
     }
@@ -148,14 +175,14 @@ export class Map extends Container {
     this.updateTileNeighbors(iso);
   }
 
-  public addMapObjectAt(iso: GlobalIsoCoordinates, type: string) {
+  public addMapObjectAt(iso: GlobalIsoCoordinates, type: MapObjectType) {
     console.debug(`Adding map object at ${iso.toString()}`);
     const cells = MapObject.getOccupiedCells(type, iso);
     if (cells.some((cell) => !this.isInsideHeightBounds(cell))) {
       console.warn("Object exceeds map height bounds at", iso.toString());
       return;
     }
-    if (cells.some((cell) => this.getEntityAt(cell))) {
+    if (cells.some((cell) => this.isCellOccupied(cell))) {
       console.warn("Entity already exists at", iso.toString());
       return;
     }
@@ -167,18 +194,23 @@ export class Map extends Container {
     console.debug(`Removing entity at ${iso.toString()}`);
     const chunk = this.getChunkAt(iso);
     if (!chunk) return;
-    const entity = chunk.getEntityAt(this.toLocalIso(iso));
-    if (!entity) return;
-    if (this.hoveredEntity?.entity === entity) {
-      chunk.removeChild(this.cursorSprites[this.hoveredEntity.side]);
-      this.hoveredEntity = undefined;
+    const cell = chunk.getCellAt(this.toLocalIso(iso));
+    if (cell === undefined) return;
+    if (typeof cell !== "string") {
+      this.clearHoveredEntity(cell);
     }
     chunk.removeEntityAt(this.toLocalIso(iso));
     this.destroyChunkIfEmpty(chunk);
 
-    if (entity instanceof Tile) {
+    if (!(cell instanceof MapObject)) {
       this.updateTileNeighbors(iso);
     }
+  }
+
+  private clearHoveredEntity(entity: Tile | MapObject) {
+    if (this.hoveredEntity?.entity !== entity) return;
+    entity.chunk.removeChild(this.cursorSprites[this.hoveredEntity.side]);
+    this.hoveredEntity = undefined;
   }
 
   private destroyChunkIfEmpty(chunk: MapChunk) {
@@ -209,15 +241,29 @@ export class Map extends Container {
   }
 
   private refreshTileAt(iso: GlobalIsoCoordinates) {
-    const tile = this.getEntityAt(iso);
-    if (tile instanceof Tile) {
-      tile.chunk.refreshTile(tile);
+    if (!this.isInsideHeightBounds(iso)) return;
+    const chunk = this.getChunkAt(iso);
+    if (!chunk) return;
+    const localIso = this.toLocalIso(iso);
+    const cell = chunk.getCellAt(localIso);
+    if (cell === undefined || cell instanceof MapObject) return;
+
+    if (typeof cell === "string") {
+      if (!this.isInShell(iso)) return;
+      chunk.refreshTile(chunk.materializeTile(localIso));
+      return;
+    }
+
+    chunk.refreshTile(cell);
+    if (!cell.hasVisibleFragments) {
+      this.clearHoveredEntity(cell);
+      chunk.dematerializeTile(cell);
     }
   }
 
   public updateAllTileNeighborhood() {
-    for (const key in this.chunks) {
-      this.chunks[key].updateAllTileNeighborhood();
+    for (const key of Object.keys(this.chunks) as IsoString[]) {
+      this.chunks[key].updateAllTileNeighborhood((iso) => this.isInShell(iso));
     }
   }
 
@@ -226,15 +272,11 @@ export class Map extends Container {
     chunkTileData: ChunkTileData
   ): MapChunk {
     console.debug(`Creating chunk at ${chunkIso.toString()}`);
-    const getTileTypeAt = (iso: GlobalIsoCoordinates): string | undefined => {
-      const entity = this.getEntityAt(iso);
-      return entity instanceof Tile ? entity.type : undefined;
-    };
     const chunk = new MapChunk(
       this.chunksSize,
       chunkTileData,
       this.tileFragmentsTextures,
-      getTileTypeAt,
+      (iso) => this.getTileTypeAt(iso),
       chunkIso
     );
     const xy = chunkIso.toXY();
@@ -293,8 +335,14 @@ export class Map extends Container {
       }
 
       const iso = new GlobalIsoCoordinates(si, ei, ui);
-      const entity = this.getEntityAt(new GlobalIsoCoordinates(si, ei, ui));
-      if (entity) return { entity, side, iso };
+      const cell = this.getCellContentAt(iso);
+      if (cell === undefined) continue;
+      if (typeof cell !== "string") return { entity: cell, side, iso };
+      console.warn(`Picking hit an unmaterialized cell at ${iso.toString()}`);
+      const chunk = this.getChunkAt(iso)!;
+      const tile = chunk.materializeTile(this.toLocalIso(iso));
+      chunk.refreshTile(tile);
+      return { entity: tile, side, iso };
     }
     return undefined;
   }
@@ -334,7 +382,7 @@ export class Map extends Container {
       newHoveredEntity?.side !== this.hoveredEntity?.side ||
       !newHoveredEntity?.iso.equals(this.hoveredEntity?.iso)
     ) {
-      if (this.hoveredEntity?.entity) {
+      if (this.hoveredEntity?.entity && !this.hoveredEntity.entity.destroyed) {
         this.hoveredEntity.entity.chunk.removeChild(
           this.cursorSprites[this.hoveredEntity.side]
         );
@@ -359,16 +407,17 @@ export class Map extends Container {
 
   public addEntityAtPointerPosition(
     localPosition: { x: number; y: number } | undefined,
-    entityType: "tile" | "object",
-    type: string
+    action:
+      | { entityType: "tile"; type: TileType }
+      | { entityType: "object"; type: MapObjectType }
   ) {
     if (!this.hoveredEntity) return;
     const { side, iso } = this.hoveredEntity;
     const target = iso.move(side);
-    if (entityType === "tile") {
-      this.addTileAt(target, type);
-    } else if (entityType === "object") {
-      this.addMapObjectAt(target, type);
+    if (action.entityType === "tile") {
+      this.addTileAt(target, action.type);
+    } else {
+      this.addMapObjectAt(target, action.type);
     }
     this.updatePointerPosition(localPosition);
   }

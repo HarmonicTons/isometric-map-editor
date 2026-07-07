@@ -9,13 +9,18 @@ import { NoTextureFoundError } from "./NoTextureFoundError";
 import { TileFragment, tileFragmentKeys } from "./TileFragment";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 
-export type GetTileTypeAt = (iso: GlobalIsoCoordinates) => string | undefined;
+/**
+ * The type of a tile (e.g. "dirt", "wall").
+ */
+export type TileType = string & { readonly __brand: "TileType" };
+
+export type GetTileTypeAt = (iso: GlobalIsoCoordinates) => TileType | undefined;
 
 /**
  * An isometric tile
  */
 export class Tile extends Container {
-  public type: string;
+  public type: TileType;
   public localIsoCoordinates: LocalIsoCoordinates;
   public globalIsoCoordinates: GlobalIsoCoordinates;
   public tileFragmentsTextures: TileFragmentsTextures;
@@ -33,7 +38,7 @@ export class Tile extends Container {
     /**
      * the type, ex: wall or stone
      */
-    type: string;
+    type: TileType;
     getTileTypeAt: GetTileTypeAt;
     localIsoCoordinates: LocalIsoCoordinates;
     globalIsoCoordinates: GlobalIsoCoordinates;

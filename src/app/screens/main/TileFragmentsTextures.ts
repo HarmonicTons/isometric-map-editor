@@ -2,10 +2,11 @@ import { maxBy, sumBy } from "lodash";
 import { Assets, Texture } from "pixi.js";
 import { IsoCoordinates } from "./IsometricCoordinate";
 import { GetTileNeighbor, TileFragmentKey } from "./TileFragment";
+import type { TileType } from "./Tile";
 
 export type TextureData = {
   name: string;
-  type: string;
+  type: TileType;
   fragment: TileFragmentKey;
   height: [number, number] | null;
   score: number;
@@ -16,7 +17,7 @@ export type TextureData = {
 };
 
 export type FragmentData = {
-  type: string;
+  type: TileType;
   fragment: TileFragmentKey;
   getTileNeighbor: GetTileNeighbor;
   height: number;
@@ -24,7 +25,7 @@ export type FragmentData = {
 
 export type TextureByFragment = Map<TileFragmentKey, Array<TextureData>>;
 
-export type TextureByTileType = Map<string, TextureByFragment>;
+export type TextureByTileType = Map<TileType, TextureByFragment>;
 
 const directionMapping: Record<string, IsoCoordinates> = {
   u: new IsoCoordinates(0, 0, 1),
@@ -72,7 +73,7 @@ export class TileFragmentsTextures {
 
     return {
       name: textureName,
-      type,
+      type: type as TileType,
       fragment: fragment as TileFragmentKey,
       neighborhood,
       score,
@@ -123,7 +124,7 @@ export class TileFragmentsTextures {
     });
   }
 
-  public static areSameTypes(type1?: string, type2?: string): boolean {
+  public static areSameTypes(type1?: TileType, type2?: TileType): boolean {
     if (type1 === type2) return true;
     const baseType1 = type1?.split("_")[0];
     const baseType2 = type2?.split("_")[0];
@@ -178,7 +179,10 @@ export class TileFragmentsTextures {
   }
 
   public getFragmentTexture(fragmentData: FragmentData): Texture | null {
-    const [type, variant] = fragmentData.type.split("_");
+    const [type, variant] = fragmentData.type.split("_") as [
+      TileType,
+      string | undefined,
+    ];
     const validTextures = [
       ...this.getAllValidTexturesForFragment(fragmentData),
       ...(variant

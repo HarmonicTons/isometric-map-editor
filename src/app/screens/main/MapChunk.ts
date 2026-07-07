@@ -2,14 +2,23 @@ import { Container, DestroyOptions, Sprite, Ticker } from "pixi.js";
 import {
   ChunkIsoCoordinates,
   GlobalIsoCoordinates,
+  IsoString,
   LocalIsoCoordinates,
   MAP_MAX_HEIGHT,
 } from "./IsometricCoordinate";
-import { MapObject } from "./MapObject";
-import { Tile } from "./Tile";
+import { MapObject, MapObjectType } from "./MapObject";
+import { Tile, TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 
-export type ChunkTileData = Record<string, string>;
+export type ChunkTileData = Record<IsoString, TileType>;
+
+/**
+ * What a cell can hold. The value type encodes the cell's state:
+ * - string: a buried tile, kept as pure data (its type), no display object
+ * - Tile: a shell tile, materialized (attached while it has fragments)
+ * - MapObject: shared reference, present on every cell the object occupies
+ */
+export type CellContent = TileType | Tile | MapObject;
 
 /**
  * A fixed-size column section of the map.
@@ -18,27 +27,32 @@ export type ChunkTileData = Record<string, string>;
  * Anything that may cross a chunk boundary must go through Map
  */
 export class MapChunk extends Container {
-  public entities: Record<string, Tile | MapObject> = {};
+  public cells: Record<IsoString, CellContent> = {};
 
   constructor(
     public size: number,
     chunkTileData: ChunkTileData,
     public tileFragmentsTextures: TileFragmentsTextures,
-    private getTileTypeAt: (iso: GlobalIsoCoordinates) => string | undefined,
+    private getTileTypeByGlobalCoordinates: (
+      iso: GlobalIsoCoordinates
+    ) => TileType | undefined,
     public readonly chunkIsoCoordinates: ChunkIsoCoordinates
   ) {
     super();
     this.eventMode = "none";
     this.sortableChildren = true;
-    for (const key in chunkTileData) {
+    // Tiles are loaded as bare data: materialization of the shell happens in
+    // the map-wide pass, once every chunk's data is available
+    for (const key of Object.keys(chunkTileData) as IsoString[]) {
       const type = chunkTileData[key];
       if (!type) continue;
-      this.createTile(LocalIsoCoordinates.fromString(key), type, true);
+      this.assertInside(LocalIsoCoordinates.fromString(key));
+      this.cells[key] = type;
     }
   }
 
   public get isEmpty(): boolean {
-    return Object.keys(this.entities).length === 0;
+    return Object.keys(this.cells).length === 0;
   }
 
   private assertInside(iso: LocalIsoCoordinates) {
@@ -67,21 +81,38 @@ export class MapChunk extends Container {
     );
   }
 
-  public getEntityAt(iso: LocalIsoCoordinates): Tile | MapObject | undefined {
+  public getCellAt(iso: LocalIsoCoordinates): CellContent | undefined {
     this.assertInside(iso);
-    return this.entities[iso.toString()];
+    return this.cells[iso.toString()];
+  }
+
+  public isCellOccupied(iso: LocalIsoCoordinates): boolean {
+    return this.getCellAt(iso) !== undefined;
+  }
+
+  public getTileTypeAt(iso: LocalIsoCoordinates): TileType | undefined {
+    const cell = this.getCellAt(iso);
+    if (typeof cell === "string") return cell;
+    return cell instanceof Tile ? cell.type : undefined;
+  }
+
+  public getDisplayedEntityAt(
+    iso: LocalIsoCoordinates
+  ): Tile | MapObject | undefined {
+    const cell = this.getCellAt(iso);
+    return typeof cell === "string" ? undefined : cell;
   }
 
   public createTile(
     iso: LocalIsoCoordinates,
-    type: string,
+    type: TileType,
     skipFragmentsSetup = false
   ): Tile {
     this.assertInside(iso);
     const globalIso = this.toGlobalIsoCoordinates(iso);
     const tile = new Tile({
       type,
-      getTileTypeAt: this.getTileTypeAt,
+      getTileTypeAt: this.getTileTypeByGlobalCoordinates,
       localIsoCoordinates: iso,
       globalIsoCoordinates: globalIso,
       tileFragmentsTextures: this.tileFragmentsTextures,
@@ -92,14 +123,42 @@ export class MapChunk extends Container {
     tile.x = xy.x;
     tile.y = xy.y;
     tile.zIndex = iso.paintersOrderKey(MAP_MAX_HEIGHT);
-    this.entities[iso.toString()] = tile;
+    this.cells[iso.toString()] = tile;
     if (!skipFragmentsSetup) {
       this.syncTileAttachment(tile);
     }
     return tile;
   }
 
-  public createMapObject(iso: LocalIsoCoordinates, type: string): MapObject {
+  /**
+   * string → Tile: give a buried cell its display object.
+   */
+  public materializeTile(iso: LocalIsoCoordinates): Tile {
+    const cell = this.getCellAt(iso);
+    if (typeof cell !== "string") {
+      throw new Error(
+        `Cannot materialize cell ${iso.toString()}: it holds no bare tile data`
+      );
+    }
+    return this.createTile(iso, cell, true);
+  }
+
+  /** Tile → string: drop the display object of a buried tile, keep the data */
+  public dematerializeTile(tile: Tile) {
+    const key = tile.localIsoCoordinates.toString();
+    if (this.cells[key] !== tile) {
+      throw new Error(
+        `Cannot dematerialize ${key}: it is not the registered tile`
+      );
+    }
+    this.cells[key] = tile.type;
+    tile.destroy({ children: true });
+  }
+
+  public createMapObject(
+    iso: LocalIsoCoordinates,
+    type: MapObjectType
+  ): MapObject {
     this.assertInside(iso);
     const globalIso = this.toGlobalIsoCoordinates(iso);
     const mapObject = new MapObject({
@@ -116,24 +175,28 @@ export class MapChunk extends Container {
     for (let i = 0; i < mapObject.objectHeight; i++) {
       const cellIso = new LocalIsoCoordinates(iso.s, iso.e, iso.u + i);
       this.assertInside(cellIso);
-      this.entities[cellIso.toString()] = mapObject;
+      this.cells[cellIso.toString()] = mapObject;
     }
     return mapObject;
   }
 
   public removeEntityAt(iso: LocalIsoCoordinates) {
-    const existingEntity = this.getEntityAt(iso);
-    if (!existingEntity) return;
-    if (existingEntity instanceof MapObject) {
-      const anchorU = existingEntity.globalIsoCoordinates.u;
-      for (let i = 0; i < existingEntity.objectHeight; i++) {
+    const cell = this.getCellAt(iso);
+    if (cell === undefined) return;
+    if (typeof cell === "string") {
+      delete this.cells[iso.toString()];
+      return;
+    }
+    if (cell instanceof MapObject) {
+      const anchorU = cell.globalIsoCoordinates.u;
+      for (let i = 0; i < cell.objectHeight; i++) {
         const cellIso = new LocalIsoCoordinates(iso.s, iso.e, anchorU + i);
-        delete this.entities[cellIso.toString()];
+        delete this.cells[cellIso.toString()];
       }
     } else {
-      delete this.entities[iso.toString()];
+      delete this.cells[iso.toString()];
     }
-    existingEntity.destroy({ children: true });
+    cell.destroy({ children: true });
   }
 
   /**
@@ -153,24 +216,30 @@ export class MapChunk extends Container {
     }
   }
 
-  public updateAllTileNeighborhood() {
-    for (const key in this.entities) {
-      const entity = this.entities[key];
-      if (entity instanceof Tile) {
-        this.refreshTile(entity);
+  public updateAllTileNeighborhood(
+    isInShell: (iso: GlobalIsoCoordinates) => boolean
+  ) {
+    for (const key of Object.keys(this.cells) as IsoString[]) {
+      const cell = this.cells[key];
+      if (cell instanceof MapObject) continue;
+      const iso = LocalIsoCoordinates.fromString(key);
+      if (typeof cell === "string") {
+        if (!isInShell(this.toGlobalIsoCoordinates(iso))) continue;
+        this.refreshTile(this.materializeTile(iso));
+      } else {
+        this.refreshTile(cell);
       }
     }
   }
 
-  /** Buried tiles are detached from the scene graph: destroy them explicitly. */
   public override destroy(options?: DestroyOptions) {
-    for (const key in this.entities) {
-      const entity = this.entities[key];
-      if (entity instanceof Tile && !entity.parent) {
-        entity.destroy({ children: true });
+    for (const key of Object.keys(this.cells) as IsoString[]) {
+      const cell = this.cells[key];
+      if (cell instanceof Tile && !cell.parent) {
+        cell.destroy({ children: true });
       }
     }
-    this.entities = {};
+    this.cells = {};
     super.destroy(options);
   }
 
