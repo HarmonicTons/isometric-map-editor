@@ -144,11 +144,7 @@ export class ControlBar extends Container {
 
     mapObjects.forEach((type) => {
       const button = new FancyButton({
-        defaultView: new MapObject({
-          globalIsoCoordinates,
-          type,
-          occupiedCells: [],
-        }),
+        defaultView: new Sprite(MapObject.getTexture(type)),
         scale: 1.5,
         anchor: 0.5,
         animations: buttonAnimations,

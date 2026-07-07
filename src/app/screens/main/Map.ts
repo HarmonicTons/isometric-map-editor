@@ -4,14 +4,13 @@ import {
   GlobalIsoCoordinates,
   isoDirections,
   LocalIsoCoordinates,
+  MAP_MAX_HEIGHT,
   VisibleIsoDirection,
 } from "./IsometricCoordinate";
 import { ChunkTileData, MapChunk } from "./MapChunk";
 import { MapObject } from "./MapObject";
 import { Tile } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
-
-const MAX_CHUNK_ISO_U = 32;
 
 export type MapData = {
   objects: Record<string, string>;
@@ -20,6 +19,10 @@ export type MapData = {
 
 /**
  * The map, as a collection of chunks.
+ *
+ * Chunks are vertical columns (chunksSize × chunksSize × MAP_MAX_HEIGHT):
+ * there is no vertical chunk boundary, so a map object always lives in a
+ * single chunk, whole sprite included.
  *
  * Map is the single authority on global coordinates: every operation that can
  * cross a chunk boundary (lookups, edits, neighborhood invalidation) lives
@@ -73,12 +76,13 @@ export class Map extends Container {
     }
   }
 
+  /** Chunks are columns: their iso coordinates have no u component. */
   private toChunkIso(iso: GlobalIsoCoordinates): ChunkIsoCoordinates {
     const size = this.chunksSize;
     return new ChunkIsoCoordinates(
       Math.floor(iso.s / size),
       Math.floor(iso.e / size),
-      Math.floor(iso.u / size)
+      0
     );
   }
 
@@ -86,7 +90,12 @@ export class Map extends Container {
     const size = this.chunksSize;
     // Euclidean modulo: also correct for negative global coordinates
     const mod = (v: number) => ((v % size) + size) % size;
-    return new LocalIsoCoordinates(mod(iso.s), mod(iso.e), mod(iso.u));
+    // u is not chunked: local u === global u
+    return new LocalIsoCoordinates(mod(iso.s), mod(iso.e), iso.u);
+  }
+
+  private isInsideHeightBounds(iso: GlobalIsoCoordinates): boolean {
+    return iso.u >= 0 && iso.u < MAP_MAX_HEIGHT;
   }
 
   public getChunkAt(iso: GlobalIsoCoordinates): MapChunk | undefined {
@@ -98,11 +107,16 @@ export class Map extends Container {
   }
 
   public getEntityAt(iso: GlobalIsoCoordinates): Tile | MapObject | undefined {
+    if (!this.isInsideHeightBounds(iso)) return undefined;
     return this.getChunkAt(iso)?.getEntityAt(this.toLocalIso(iso));
   }
 
   public addTileAt(iso: GlobalIsoCoordinates, type: string) {
     console.debug(`Adding tile at ${iso.toString()}`);
+    if (!this.isInsideHeightBounds(iso)) {
+      console.warn("Tile exceeds map height bounds at", iso.toString());
+      return;
+    }
     if (this.getEntityAt(iso)) {
       console.warn("Entity already exists at", iso.toString());
       return;
@@ -114,25 +128,16 @@ export class Map extends Container {
   public addMapObjectAt(iso: GlobalIsoCoordinates, type: string) {
     console.debug(`Adding map object at ${iso.toString()}`);
     const cells = MapObject.getOccupiedCells(type, iso);
+    if (cells.some((cell) => !this.isInsideHeightBounds(cell))) {
+      console.warn("Object exceeds map height bounds at", iso.toString());
+      return;
+    }
     if (cells.some((cell) => this.getEntityAt(cell))) {
       console.warn("Entity already exists at", iso.toString());
       return;
     }
-    const mapObject = new MapObject({
-      type,
-      globalIsoCoordinates: iso,
-      occupiedCells: cells,
-    });
-    for (const cell of cells) {
-      this.getOrCreateChunkAt(cell).registerMapObjectAt(
-        this.toLocalIso(cell),
-        mapObject
-      );
-    }
 
-    // for (const span of this.splitCellsByChunk(cells)) {
-    //   span.chunk.addObjectPiece(object, span);
-    // }
+    this.getOrCreateChunkAt(iso).createMapObject(this.toLocalIso(iso), type);
   }
 
   public removeEntityAt(iso: GlobalIsoCoordinates) {
@@ -144,22 +149,11 @@ export class Map extends Container {
     if (this.hoveredEntity?.entity === entity) {
       this.hoveredEntity = undefined;
     }
+    chunk.removeEntityAt(this.toLocalIso(iso));
+    this.destroyChunkIfEmpty(chunk);
+
     if (entity instanceof Tile) {
-      chunk.removeTileAt(this.toLocalIso(iso));
       this.updateTileNeighbors(iso);
-      this.destroyChunkIfEmpty(chunk);
-      return;
-    }
-    if (entity instanceof MapObject) {
-      const chunks = new Set<MapChunk>();
-      for (const cell of entity.occupiedCells) {
-        const cellChunk = this.getChunkAt(cell);
-        if (!cellChunk) continue;
-        chunks.add(cellChunk);
-        cellChunk.unregisterMapObjectAt(this.toLocalIso(cell));
-      }
-      entity.destroy({ children: true });
-      chunks.forEach((chunk) => this.destroyChunkIfEmpty(chunk));
     }
   }
 
@@ -222,7 +216,8 @@ export class Map extends Container {
     const xy = chunkIso.toXY();
     chunk.x = xy.x * this.chunksSize;
     chunk.y = xy.y * this.chunksSize;
-    chunk.zIndex = chunkIso.paintersOrderKey(MAX_CHUNK_ISO_U);
+    // Columns have no u dimension: depth order between chunks is their diagonal
+    chunk.zIndex = chunkIso.s + chunkIso.e;
     this.chunks[chunkIso.toString()] = chunk;
     this.addChild(chunk);
     return chunk;
@@ -238,7 +233,7 @@ export class Map extends Container {
     const w = (px - 16) / 16;
     const m = (py - 8) / 8;
 
-    const U = MAX_CHUNK_ISO_U * this.chunksSize + 1;
+    const U = MAP_MAX_HEIGHT + 1;
     const S = (U + m - w) / 2;
     const E = (U + m + w) / 2;
 

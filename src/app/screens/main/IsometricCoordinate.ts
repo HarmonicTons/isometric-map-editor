@@ -1,3 +1,9 @@
+/**
+ * Maximum height of a map, in cells. Chunks are vertical columns: horizontal
+ * coordinates are unbounded, but u must stay in [0, MAP_MAX_HEIGHT).
+ */
+export const MAP_MAX_HEIGHT = 256;
+
 export const isoDirections = [
   "up",
   "north",

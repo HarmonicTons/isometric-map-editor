@@ -1,49 +1,55 @@
 import { Sprite, Texture } from "pixi.js";
 import { GlobalIsoCoordinates, IsoCoordinates } from "./IsometricCoordinate";
 import { NoTextureFoundError } from "./NoTextureFoundError";
+import type { MapChunk } from "./MapChunk";
 
 /**
- * An object on the map
+ * An object on the map (tree, rock...).
  */
 export class MapObject extends Sprite {
-  public globalIsoCoordinates: GlobalIsoCoordinates;
-  public type: string;
-  public objectHeight: number;
-  public occupiedCells: GlobalIsoCoordinates[] = [];
+  public readonly type: string;
+  /** Anchor: the lowest occupied cell */
+  public readonly globalIsoCoordinates: GlobalIsoCoordinates;
+  /** Height in cells, derived from the sprite size (see getHeight) */
+  public readonly objectHeight: number;
+  public readonly occupiedCells: GlobalIsoCoordinates[];
+  public chunk: MapChunk;
 
   constructor({
     type,
     globalIsoCoordinates,
-    occupiedCells,
+    chunk,
   }: {
     type: string;
     globalIsoCoordinates: GlobalIsoCoordinates;
-    occupiedCells: GlobalIsoCoordinates[];
+    chunk: MapChunk;
   }) {
-    const texture = Texture.from(type + ".png");
-    if (!texture) {
-      throw new NoTextureFoundError(
-        `No texture found for object of type ${type}`
-      );
-    }
-    // keep pixel art style
-
+    const texture = MapObject.getTexture(type);
     super({ texture });
     this.type = type;
     this.anchor.set(0, 1);
     this.globalIsoCoordinates = globalIsoCoordinates;
 
     this.objectHeight = MapObject.getHeight(type);
-    this.occupiedCells = occupiedCells;
+    this.occupiedCells = MapObject.getOccupiedCells(type, globalIsoCoordinates);
+    this.chunk = chunk;
   }
 
-  public static getHeight(type: string): number {
+  public static getTexture(type: string): Texture {
     const texture = Texture.from(type + ".png");
     if (!texture) {
       throw new NoTextureFoundError(
         `No texture found for object of type ${type}`
       );
     }
+    return texture;
+  }
+
+  /**
+   * Height in cells, derived from the sprite size
+   */
+  public static getHeight(type: string): number {
+    const texture = MapObject.getTexture(type);
     const isValid = (texture.height - 16) % 8 === 0;
     if (!isValid) {
       console.warn(

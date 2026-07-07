@@ -3,6 +3,7 @@ import {
   ChunkIsoCoordinates,
   GlobalIsoCoordinates,
   LocalIsoCoordinates,
+  MAP_MAX_HEIGHT,
 } from "./IsometricCoordinate";
 import { MapObject } from "./MapObject";
 import { Tile } from "./Tile";
@@ -11,12 +12,10 @@ import { TileFragmentsTextures } from "./TileFragmentsTextures";
 export type ChunkTileData = Record<string, string>;
 
 /**
- * A fixed-size cubic section of the map.
+ * A fixed-size column section of the map.
  *
- * A chunk only knows its own local domain: every coordinate it receives is a
- * LocalIsoCoordinates that must be inside its bounds (asserted). Anything
- * that may cross a chunk boundary — neighbor lookups, edits, invalidation —
- * must go through Map, the single authority on global coordinates.
+ * A chunk only knows its own local domain.
+ * Anything that may cross a chunk boundary must go through Map
  */
 export class MapChunk extends Container {
   public entities: Record<string, Tile | MapObject> = {};
@@ -43,13 +42,14 @@ export class MapChunk extends Container {
   }
 
   private assertInside(iso: LocalIsoCoordinates) {
+    // Chunks are vertical columns: s/e are chunk-local, u is global
     const inside =
       iso.s >= 0 &&
       iso.e >= 0 &&
       iso.u >= 0 &&
       iso.s < this.size &&
       iso.e < this.size &&
-      iso.u < this.size;
+      iso.u < MAP_MAX_HEIGHT;
     if (!inside) {
       throw new Error(
         `Local coordinates ${iso.toString()} are outside chunk ${this.chunkIsoCoordinates.toString()}`
@@ -91,7 +91,7 @@ export class MapChunk extends Container {
     const xy = iso.toXY();
     tile.x = xy.x;
     tile.y = xy.y;
-    tile.zIndex = iso.paintersOrderKey(this.size);
+    tile.zIndex = iso.paintersOrderKey(MAP_MAX_HEIGHT);
     this.entities[iso.toString()] = tile;
     if (!skipFragmentsSetup) {
       this.syncTileAttachment(tile);
@@ -99,34 +99,39 @@ export class MapChunk extends Container {
     return tile;
   }
 
-  public registerMapObjectAt(
-    iso: LocalIsoCoordinates,
-    entity: MapObject
-  ) {
+  public createMapObject(iso: LocalIsoCoordinates, type: string): MapObject {
     this.assertInside(iso);
-    this.entities[iso.toString()] = entity;
+    const globalIso = this.toGlobalIsoCoordinates(iso);
+    const mapObject = new MapObject({
+      type,
+      globalIsoCoordinates: globalIso,
+      chunk: this,
+    });
+    const xy = iso.toXY();
+    mapObject.x = xy.x;
+    mapObject.y = xy.y + 24;
+    mapObject.zIndex = iso.paintersOrderKey(MAP_MAX_HEIGHT);
+    this.addChild(mapObject);
+    for (let i = 0; i < mapObject.objectHeight; i++) {
+      const cellIso = new LocalIsoCoordinates(iso.s, iso.e, iso.u + i);
+      this.assertInside(cellIso);
+      this.entities[cellIso.toString()] = mapObject;
+    }
+    return mapObject;
   }
 
-  public unregisterMapObjectAt(iso: LocalIsoCoordinates) {
-    this.assertInside(iso);
-    delete this.entities[iso.toString()];
-  }
-
-  // public createObject(iso: LocalIsoCoordinates, type: string): MapObject {
-  // const mapObject = new MapObject({ type, isoCoordinates: iso });
-  // const xy = iso.toXY();
-  // mapObject.x = xy.x;
-  // mapObject.y = xy.y + 24;
-  // mapObject.zIndex = iso.paintersOrderKey(this.size);
-  // this.objects[iso.toString()] = mapObject;
-  // this.addChild(mapObject);
-  // return mapObject;
-  // }
-
-  public removeTileAt(iso: LocalIsoCoordinates) {
+  public removeEntityAt(iso: LocalIsoCoordinates) {
     const existingEntity = this.getEntityAt(iso);
     if (!existingEntity) return;
-    delete this.entities[iso.toString()];
+    if (existingEntity instanceof MapObject) {
+      const anchorU = existingEntity.globalIsoCoordinates.u;
+      for (let i = 0; i < existingEntity.objectHeight; i++) {
+        const cellIso = new LocalIsoCoordinates(iso.s, iso.e, anchorU + i);
+        delete this.entities[cellIso.toString()];
+      }
+    } else {
+      delete this.entities[iso.toString()];
+    }
     existingEntity.destroy({ children: true });
   }
 
