@@ -1,11 +1,18 @@
-import { Container, FederatedPointerEvent, Point, Ticker } from "pixi.js";
-import { CursorAction } from "./GameScreen";
-import { IsoCoordinates, isoDirections } from "./IsometricCoordinate";
-import { MapObject } from "./MapObject";
-import { Tile } from "./Tile";
+import { Container, Sprite, Texture, Ticker } from "pixi.js";
+import {
+  ChunkIsoCoordinates,
+  GlobalIsoCoordinates,
+  isoDirections,
+  IsoString,
+  LocalIsoCoordinates,
+  MAP_MAX_HEIGHT,
+  VisibleIsoDirection,
+  visibleIsoDirections,
+} from "./IsometricCoordinate";
+import { CellContent, ChunkTileData, MapChunk } from "./MapChunk";
+import { MapObject, MapObjectType } from "./MapObject";
+import { Tile, TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
-
-const UMAX = 256;
 
 export type MapData = {
   objects: Record<string, string>;
@@ -13,261 +20,426 @@ export type MapData = {
 };
 
 /**
- * Map class representing a collection of isometric tiles.
+ * The map, as a collection of chunks.
+ *
+ * Chunks are vertical columns (chunksSize × chunksSize × MAP_MAX_HEIGHT):
+ * there is no vertical chunk boundary, so a map object always lives in a
+ * single chunk, whole sprite included.
+ *
+ * Map is the single authority on global coordinates: every operation that can
+ * cross a chunk boundary (lookups, edits, neighborhood invalidation) lives
+ * here and is routed to the owning chunk in local coordinates. Chunks never
+ * know about their neighbors.
  */
 export class Map extends Container {
-  public tiles: Record<string, Tile> = {};
-  public objects: Record<string, MapObject> = {};
+  public chunks: Record<IsoString, MapChunk> = {};
+  private chunksSize: number = 8;
+  public hoveredEntity?: {
+    entity: Tile | MapObject;
+    side: VisibleIsoDirection;
+    iso: GlobalIsoCoordinates;
+  };
+  private cursorSprites: Record<VisibleIsoDirection, Sprite> = {} as Record<
+    VisibleIsoDirection,
+    Sprite
+  >;
+  private cursorMode?: "add" | "remove";
 
   constructor(
     mapData: MapData,
-    public getCursorAction: () => CursorAction,
     public tileFragmentsTextures: TileFragmentsTextures
   ) {
     super();
-    const { tiles, objects } = mapData;
-    for (const key in tiles) {
-      const type = tiles[key];
+    // Pointer events are handled by GameScreen
+    this.eventMode = "none";
+    this.sortableChildren = true;
+
+    // Group the map data by chunk
+    const chunksData: Record<IsoString, ChunkTileData> = {};
+    const chunkDataFor = (globalIso: GlobalIsoCoordinates): ChunkTileData => {
+      const chunkKey = this.toChunkIso(globalIso).toString();
+      return (chunksData[chunkKey] ??= {});
+    };
+    for (const key in mapData.tiles) {
+      const type = mapData.tiles[key];
       if (!type) continue;
-      const iso = IsoCoordinates.fromString(key);
-      this.createTile(iso, type);
+      const globalIso = GlobalIsoCoordinates.fromString(key);
+      chunkDataFor(globalIso)[this.toLocalIso(globalIso).toString()] =
+        type as TileType;
     }
-    for (const key in objects) {
-      const type = objects[key];
-      if (!type) continue;
-      const iso = IsoCoordinates.fromString(key);
-      this.createObject(iso, type);
+
+    for (const chunkKey of Object.keys(chunksData) as IsoString[]) {
+      this.createChunk(
+        ChunkIsoCoordinates.fromString(chunkKey),
+        chunksData[chunkKey]
+      );
     }
 
     this.updateAllTileNeighborhood();
-  }
 
-  public toJson(): string {
-    const result: MapData = { objects: {}, tiles: {} };
-    for (const key in this.objects) {
-      result.objects[key] = this.objects[key].type;
+    for (const key in mapData.objects) {
+      const type = mapData.objects[key];
+      if (!type) continue;
+      const globalIso = GlobalIsoCoordinates.fromString(key);
+      this.addMapObjectAt(globalIso, type as MapObjectType);
     }
-    for (const key in this.tiles) {
-      result.tiles[key] = this.tiles[key].type;
-    }
-    return JSON.stringify(result);
-  }
 
-  private createObject(iso: IsoCoordinates, type: string) {
-    const mapObject = new MapObject({ type, isoCoordinates: iso });
-    mapObject.x = iso.e * 16 - iso.s * 16;
-    mapObject.y = iso.e * 8 + iso.s * 8 - iso.u * 8 + 24;
-    this.objects[iso.toString()] = mapObject;
-    this.addChild(mapObject);
-    mapObject.zIndex = iso.paintersOrderKey(UMAX);
+    const cursorUTexture = Texture.from("cursor-u.png");
+    const cursorUSprite = new Sprite(cursorUTexture);
 
-    mapObject.on("rightdown", (evt) => {
-      evt.stopPropagation();
-      this.removeMapObjectAt(iso);
-    });
+    const cursorETexture = Texture.from("cursor-e.png");
+    const cursorESprite = new Sprite(cursorETexture);
+    cursorESprite.anchor.set(-1, -0.5);
 
-    let startPos: Point | null = null;
-    mapObject
-      .on("pointerdown", (evt) => {
-        startPos = evt.global.clone();
-      })
-      .on("pointerup", (evt) => {
-        const endPos = evt.global;
-        if (startPos === null) return;
-        const moved =
-          Math.abs(endPos.x - startPos.x) > 5 ||
-          Math.abs(endPos.y - startPos.y) > 5;
-        startPos = null;
-        if (moved) return;
-        const action = this.getCursorAction();
-        if (action.mode === "remove") {
-          this.removeMapObjectAt(iso);
-        }
-      });
-  }
+    const cursorSTexture = Texture.from("cursor-s.png");
+    const cursorSSprite = new Sprite(cursorSTexture);
+    cursorSSprite.anchor.set(0, -0.5);
 
-  private createTile(iso: IsoCoordinates, type: string) {
-    const tile = new Tile({
-      type,
-      getTileNeighbor: (relativeCoordinates) => {
-        const neighborIso = iso.add(relativeCoordinates);
-        const neighborTile = this.getTileAt(neighborIso);
-        return neighborTile ? neighborTile.type : undefined;
-      },
-      isoCoordinates: iso,
-      tileFragmentsTextures: this.tileFragmentsTextures,
-    });
-    tile.x = iso.e * 16 - iso.s * 16;
-    tile.y = iso.e * 8 + iso.s * 8 - iso.u * 8;
-    this.tiles[iso.toString()] = tile;
-    this.addChild(tile);
-    tile.zIndex = iso.paintersOrderKey(UMAX);
-
-    tile.on("rightdown", (evt) => {
-      evt.stopPropagation();
-      this.removeTileAt(iso);
-    });
-
-    const handlePress = (evt: FederatedPointerEvent) => {
-      const action = this.getCursorAction();
-      if (action.mode === "remove") {
-        this.removeTileAt(iso);
-        return;
-      }
-      const localX = Math.floor(evt.getLocalPosition(tile).x);
-      const localY = Math.floor(evt.getLocalPosition(tile).y);
-      const side = Tile.getSideFromLocalCoordinates({ x: localX, y: localY });
-      if (action.entityType === "tile") {
-        if (side === "up") {
-          this.addTileAt(iso.move("up"), action.type);
-        }
-        if (side === "south") {
-          this.addTileAt(iso.move("south"), action.type);
-        }
-        if (side === "east") {
-          this.addTileAt(iso.move("east"), action.type);
-        }
-      }
-      if (action.entityType === "object") {
-        if (side === "up") {
-          this.addMapObjectAt(iso.move("up"), action.type);
-        }
-        if (side === "south") {
-          this.addMapObjectAt(iso.move("south"), action.type);
-        }
-        if (side === "east") {
-          this.addMapObjectAt(iso.move("east"), action.type);
-        }
-      }
+    this.cursorSprites = {
+      up: cursorUSprite,
+      east: cursorESprite,
+      south: cursorSSprite,
     };
-
-    let startPos: Point | null = null;
-    tile
-      .on("pointerdown", (evt) => {
-        startPos = evt.global.clone();
-      })
-      .on("pointerup", (evt) => {
-        const endPos = evt.global;
-        if (startPos === null) return;
-        const moved =
-          Math.abs(endPos.x - startPos.x) > 5 ||
-          Math.abs(endPos.y - startPos.y) > 5;
-        startPos = null;
-        if (moved) return;
-        handlePress(evt);
-      });
   }
 
-  private getTileAt(iso: IsoCoordinates): Tile | undefined {
-    return this.tiles[iso.toString()];
-  }
-  private getMapObjectAt(iso: IsoCoordinates): MapObject | undefined {
-    return this.objects[iso.toString()];
-  }
-  private getEntityAt(iso: IsoCoordinates): Tile | MapObject | undefined {
-    return this.getTileAt(iso) || this.getMapObjectAt(iso);
+  /** Chunks are columns: their iso coordinates have no u component. */
+  private toChunkIso(iso: GlobalIsoCoordinates): ChunkIsoCoordinates {
+    const size = this.chunksSize;
+    return new ChunkIsoCoordinates(
+      Math.floor(iso.s / size),
+      Math.floor(iso.e / size),
+      0
+    );
   }
 
-  private removeTileAt(iso: IsoCoordinates) {
-    console.info("removing tile at", iso.s, iso.e, iso.u);
-    const existingTile = this.getTileAt(iso);
-    if (existingTile) {
-      this.removeChild(existingTile);
-      existingTile.destroy({ children: true });
-      delete this.tiles[iso.toString()];
-      // Update neighborhood
+  private toLocalIso(iso: GlobalIsoCoordinates): LocalIsoCoordinates {
+    const size = this.chunksSize;
+    // Euclidean modulo: also correct for negative global coordinates
+    const mod = (v: number) => ((v % size) + size) % size;
+    // u is not chunked: local u === global u
+    return new LocalIsoCoordinates(mod(iso.s), mod(iso.e), iso.u);
+  }
+
+  private isInsideHeightBounds(iso: GlobalIsoCoordinates): boolean {
+    return iso.u >= 0 && iso.u < MAP_MAX_HEIGHT;
+  }
+
+  public getChunkAt(iso: GlobalIsoCoordinates): MapChunk | undefined {
+    return this.chunks[this.toChunkIso(iso).toString()];
+  }
+
+  private getOrCreateChunkAt(iso: GlobalIsoCoordinates): MapChunk {
+    return this.getChunkAt(iso) ?? this.createChunk(this.toChunkIso(iso), {});
+  }
+
+  private getCellContentAt(iso: GlobalIsoCoordinates): CellContent | undefined {
+    if (!this.isInsideHeightBounds(iso)) return undefined;
+    return this.getChunkAt(iso)?.getCellAt(this.toLocalIso(iso));
+  }
+
+  public isCellOccupied(iso: GlobalIsoCoordinates): boolean {
+    return this.getCellContentAt(iso) !== undefined;
+  }
+
+  public getTileTypeAt(iso: GlobalIsoCoordinates): TileType | undefined {
+    const cell = this.getCellContentAt(iso);
+    if (typeof cell === "string") return cell;
+    return cell instanceof Tile ? cell.type : undefined;
+  }
+
+  public getEntityAt(iso: GlobalIsoCoordinates): Tile | MapObject | undefined {
+    const cell = this.getCellContentAt(iso);
+    return typeof cell === "string" ? undefined : cell;
+  }
+
+  /**
+   * A tile cell deserves a display object iff at least one of its direct
+   * neighbors is not a tile (its fragments can only be visible in that case)
+   */
+  private isInShell(iso: GlobalIsoCoordinates): boolean {
+    return visibleIsoDirections.some(
+      (direction) => this.getTileTypeAt(iso.move(direction)) === undefined
+    );
+  }
+
+  public addTileAt(iso: GlobalIsoCoordinates, type: TileType) {
+    console.debug(`Adding tile at ${iso.toString()}`);
+    if (!this.isInsideHeightBounds(iso)) {
+      console.warn("Tile exceeds map height bounds at", iso.toString());
+      return;
+    }
+    if (this.isCellOccupied(iso)) {
+      console.warn("Entity already exists at", iso.toString());
+      return;
+    }
+    this.getOrCreateChunkAt(iso).createTile(this.toLocalIso(iso), type);
+    this.updateTileNeighbors(iso);
+  }
+
+  public addMapObjectAt(iso: GlobalIsoCoordinates, type: MapObjectType) {
+    console.debug(`Adding map object at ${iso.toString()}`);
+    const cells = MapObject.getOccupiedCells(type, iso);
+    if (cells.some((cell) => !this.isInsideHeightBounds(cell))) {
+      console.warn("Object exceeds map height bounds at", iso.toString());
+      return;
+    }
+    if (cells.some((cell) => this.isCellOccupied(cell))) {
+      console.warn("Entity already exists at", iso.toString());
+      return;
+    }
+
+    this.getOrCreateChunkAt(iso).createMapObject(this.toLocalIso(iso), type);
+  }
+
+  public removeEntityAt(iso: GlobalIsoCoordinates) {
+    console.debug(`Removing entity at ${iso.toString()}`);
+    const chunk = this.getChunkAt(iso);
+    if (!chunk) return;
+    const cell = chunk.getCellAt(this.toLocalIso(iso));
+    if (cell === undefined) return;
+    if (typeof cell !== "string") {
+      this.clearHoveredEntity(cell);
+    }
+    chunk.removeEntityAt(this.toLocalIso(iso));
+    this.destroyChunkIfEmpty(chunk);
+
+    if (!(cell instanceof MapObject)) {
       this.updateTileNeighbors(iso);
     }
   }
 
-  private removeMapObjectAt(iso: IsoCoordinates) {
-    console.info("removing map object at", iso.s, iso.e, iso.u);
-    const existingObject = this.getMapObjectAt(iso);
-    if (existingObject) {
-      this.removeChild(existingObject);
-      existingObject.destroy({ children: true });
-      delete this.objects[iso.toString()];
-    }
+  private clearHoveredEntity(entity: Tile | MapObject) {
+    if (this.hoveredEntity?.entity !== entity) return;
+    entity.chunk.removeChild(this.cursorSprites[this.hoveredEntity.side]);
+    this.hoveredEntity = undefined;
   }
 
-  public addTileAt(iso: IsoCoordinates, type: string) {
-    if (this.getEntityAt(iso)) {
-      console.warn("Entity already exists at", iso.s, iso.e, iso.u);
-      return;
-    }
-    console.info("adding tile at", iso.s, iso.e, iso.u);
-    this.createTile(iso, type);
-
-    // Update neighborhood
-    this.updateTileNeighbors(iso);
-  }
-
-  public addMapObjectAt(iso: IsoCoordinates, type: string) {
-    if (this.getEntityAt(iso)) {
-      console.warn("Entity already exists at", iso.s, iso.e, iso.u);
-      return;
-    }
-    console.info("adding map object at", iso.s, iso.e, iso.u);
-    this.createObject(iso, type);
-  }
-
-  /**
-   * Update a tile sprite
-   * If the tile has no visible fragments, it will be removed from the map
-   * If the tile has visible fragments and is not in the map, it will be added to the map
-   */
-  private refreshTile(tile: Tile) {
-    tile.updateNeighborhood();
-    if (tile.hasVisibleFragments && !tile.parent) {
-      this.addChild(tile);
-      return;
-    }
-    if (!tile.hasVisibleFragments && tile.parent) {
-      this.removeChild(tile);
-      return;
-    }
+  private destroyChunkIfEmpty(chunk: MapChunk) {
+    if (!chunk.isEmpty) return;
+    console.debug(
+      `Destroying empty chunk at ${chunk.chunkIsoCoordinates.toString()}`
+    );
+    delete this.chunks[chunk.chunkIsoCoordinates.toString()];
+    chunk.destroy({ children: true });
   }
 
   /**
    * This won't work with tiles that are not UNESWD
    * TODO note which tile depends on which tile in a linked list
    */
-  public updateTileNeighbors(iso: IsoCoordinates) {
-    // Update neighborhood
-
+  public updateTileNeighbors(iso: GlobalIsoCoordinates) {
     for (const direction of isoDirections) {
-      const neighborTile = this.getTileAt(iso.move(direction));
-      if (!neighborTile) {
-        continue;
-      }
-      this.refreshTile(neighborTile);
+      this.refreshTileAt(iso.move(direction));
     }
     // HACK: hard code tiles to update
-    const uuuNeighborTile = this.getTileAt(
-      iso.move("up").move("up").move("up")
-    );
-    if (uuuNeighborTile) this.refreshTile(uuuNeighborTile);
-    const uuNeighborTile = this.getTileAt(iso.move("up").move("up"));
-    if (uuNeighborTile) this.refreshTile(uuNeighborTile);
-    const unNeighborTile = this.getTileAt(iso.move("up").move("north"));
-    if (unNeighborTile) this.refreshTile(unNeighborTile);
-    const uwNeighborTile = this.getTileAt(iso.move("up").move("west"));
-    if (uwNeighborTile) this.refreshTile(uwNeighborTile);
-    const ddNeighborTile = this.getTileAt(iso.move("down").move("down"));
-    if (ddNeighborTile) this.refreshTile(ddNeighborTile);
-    const dsNeighborTile = this.getTileAt(iso.move("down").move("south"));
-    if (dsNeighborTile) this.refreshTile(dsNeighborTile);
-    const deNeighborTile = this.getTileAt(iso.move("down").move("east"));
-    if (deNeighborTile) this.refreshTile(deNeighborTile);
+    this.refreshTileAt(iso.move("up").move("up").move("up"));
+    this.refreshTileAt(iso.move("up").move("up"));
+    this.refreshTileAt(iso.move("up").move("north"));
+    this.refreshTileAt(iso.move("up").move("west"));
+    this.refreshTileAt(iso.move("down").move("down"));
+    this.refreshTileAt(iso.move("down").move("south"));
+    this.refreshTileAt(iso.move("down").move("east"));
   }
 
-  private updateAllTileNeighborhood() {
-    for (const key in this.tiles) {
-      const tile = this.tiles[key];
-      this.refreshTile(tile);
+  private refreshTileAt(iso: GlobalIsoCoordinates) {
+    if (!this.isInsideHeightBounds(iso)) return;
+    const chunk = this.getChunkAt(iso);
+    if (!chunk) return;
+    const localIso = this.toLocalIso(iso);
+    const cell = chunk.getCellAt(localIso);
+    if (cell === undefined || cell instanceof MapObject) return;
+
+    if (typeof cell === "string") {
+      if (!this.isInShell(iso)) return;
+      chunk.refreshTile(chunk.materializeTile(localIso));
+      return;
+    }
+
+    chunk.refreshTile(cell);
+    if (!cell.hasVisibleFragments) {
+      this.clearHoveredEntity(cell);
+      chunk.dematerializeTile(cell);
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  public update(_time: Ticker) {}
+  public updateAllTileNeighborhood() {
+    for (const key of Object.keys(this.chunks) as IsoString[]) {
+      this.chunks[key].updateAllTileNeighborhood((iso) => this.isInShell(iso));
+    }
+  }
+
+  private createChunk(
+    chunkIso: ChunkIsoCoordinates,
+    chunkTileData: ChunkTileData
+  ): MapChunk {
+    console.debug(`Creating chunk at ${chunkIso.toString()}`);
+    const chunk = new MapChunk(
+      this.chunksSize,
+      chunkTileData,
+      this.tileFragmentsTextures,
+      (iso) => this.getTileTypeAt(iso),
+      chunkIso
+    );
+    const xy = chunkIso.toXY();
+    chunk.x = xy.x * this.chunksSize;
+    chunk.y = xy.y * this.chunksSize;
+    // Columns have no u dimension: depth order between chunks is their diagonal
+    chunk.zIndex = chunkIso.s + chunkIso.e;
+    this.chunks[chunkIso.toString()] = chunk;
+    this.addChild(chunk);
+    return chunk;
+  }
+
+  /**
+   * Amanatides-Woo algorithm to find the first occupied cell under the pointer
+   */
+  public getEntityAtPixelPosition(
+    px: number,
+    py: number
+  ):
+    | {
+        entity: Tile | MapObject;
+        side: VisibleIsoDirection;
+        iso: GlobalIsoCoordinates;
+      }
+    | undefined {
+    const w = (px - 16) / 16;
+    const m = (py - 8) / 8;
+
+    const U = MAP_MAX_HEIGHT + 1;
+    const S = (U + m - w) / 2;
+    const E = (U + m + w) / 2;
+
+    let si = Math.floor(S);
+    let ei = Math.floor(E);
+    let ui = Math.floor(U);
+
+    const frac = (v: number) => v - Math.floor(v);
+    let tMaxU = 0;
+    let tMaxS = 2 * frac(S);
+    let tMaxE = 2 * frac(E);
+
+    while (ui >= 0) {
+      let side: VisibleIsoDirection;
+      if (tMaxU <= tMaxS && tMaxU <= tMaxE) {
+        ui -= 1;
+        tMaxU += 1;
+        side = "up";
+      } else if (tMaxS <= tMaxE) {
+        si -= 1;
+        tMaxS += 2;
+        side = "south";
+      } else {
+        ei -= 1;
+        tMaxE += 2;
+        side = "east";
+      }
+
+      const iso = new GlobalIsoCoordinates(si, ei, ui);
+      const cell = this.getCellContentAt(iso);
+      if (cell === undefined) continue;
+      if (typeof cell !== "string") return { entity: cell, side, iso };
+      console.warn(`Picking hit an unmaterialized cell at ${iso.toString()}`);
+      const chunk = this.getChunkAt(iso)!;
+      const tile = chunk.materializeTile(this.toLocalIso(iso));
+      chunk.refreshTile(tile);
+      return { entity: tile, side, iso };
+    }
+    return undefined;
+  }
+
+  public setCursorMode(mode: "add" | "remove") {
+    if (this.cursorMode === mode) return;
+    this.cursorMode = mode;
+    if (mode === "add") {
+      const blue = 0x0000ff;
+      this.cursorSprites.up.tint = blue;
+      this.cursorSprites.east.tint = blue;
+      this.cursorSprites.south.tint = blue;
+    } else if (mode === "remove") {
+      const red = 0xff0000;
+      this.cursorSprites.up.tint = red;
+      this.cursorSprites.east.tint = red;
+      this.cursorSprites.south.tint = red;
+    }
+  }
+
+  public updatePointerPosition(
+    localPosition: { x: number; y: number } | undefined,
+    mode?: "add" | "remove"
+  ) {
+    if (!localPosition) return;
+    if (mode) {
+      this.setCursorMode(mode);
+    }
+    // find first tile under the pointer
+    const newHoveredEntity = this.getEntityAtPixelPosition(
+      localPosition.x,
+      localPosition.y
+    );
+
+    if (
+      newHoveredEntity?.entity !== this.hoveredEntity?.entity ||
+      newHoveredEntity?.side !== this.hoveredEntity?.side ||
+      !newHoveredEntity?.iso.equals(this.hoveredEntity?.iso)
+    ) {
+      if (this.hoveredEntity?.entity && !this.hoveredEntity.entity.destroyed) {
+        this.hoveredEntity.entity.chunk.removeChild(
+          this.cursorSprites[this.hoveredEntity.side]
+        );
+      }
+      if (newHoveredEntity?.entity) {
+        newHoveredEntity.entity.chunk.addCursorSpriteAt(
+          this.toLocalIso(newHoveredEntity.iso),
+          this.cursorSprites[newHoveredEntity.side]
+        );
+      }
+    }
+    this.hoveredEntity = newHoveredEntity;
+  }
+
+  public removeEntityAtPointerPosition(localPosition: {
+    x: number;
+    y: number;
+  }) {
+    const hoveredEntity = this.getEntityAtPixelPosition(
+      localPosition.x,
+      localPosition.y
+    );
+    if (!hoveredEntity) return;
+    this.removeEntityAt(hoveredEntity.entity.globalIsoCoordinates);
+  }
+
+  public addEntityAtPointerPosition(
+    localPosition: { x: number; y: number },
+    action:
+      | { entityType: "tile"; type: TileType }
+      | { entityType: "object"; type: MapObjectType }
+  ) {
+    const hoveredEntity = this.getEntityAtPixelPosition(
+      localPosition.x,
+      localPosition.y
+    );
+    if (!hoveredEntity) return;
+    const { side, iso } = hoveredEntity;
+    const target = iso.move(side);
+    if (action.entityType === "tile") {
+      this.addTileAt(target, action.type);
+    } else {
+      this.addMapObjectAt(target, action.type);
+    }
+  }
+
+  public update(time: Ticker) {
+    if (!this.hoveredEntity) return;
+    const pulse = 0.5 + 0.5 * Math.sin((time.lastTime / 800) * Math.PI * 2);
+    this.cursorSprites[this.hoveredEntity.side].alpha = 0.3 + 0.7 * pulse;
+  }
+
+  public destroy(options?: { children?: boolean; texture?: boolean }) {
+    this.cursorSprites.up.destroy();
+    this.cursorSprites.east.destroy();
+    this.cursorSprites.south.destroy();
+    super.destroy(options);
+  }
 }

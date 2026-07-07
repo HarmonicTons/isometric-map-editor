@@ -1,16 +1,23 @@
 import { Viewport } from "pixi-viewport";
-import type { Ticker } from "pixi.js";
+import type { Point, Ticker } from "pixi.js";
 import { Container } from "pixi.js";
 import { engine } from "../../getEngine";
 import { Background } from "./Background";
 import { ControlBar } from "./ControlBar";
 import { Map, MapData } from "./Map";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
+import type { TileType } from "./Tile";
+import type { MapObjectType } from "./MapObject";
 
 export type CursorAction =
   | {
-      entityType: "tile" | "object";
-      type: string;
+      entityType: "tile";
+      type: TileType;
+      mode: "add";
+    }
+  | {
+      entityType: "object";
+      type: MapObjectType;
       mode: "add";
     }
   | {
@@ -48,12 +55,44 @@ export class GameScreen extends Container {
     const centerY = Math.round(engine().screen.height * 0.5);
     this.mapContainer.x = centerX;
     this.mapContainer.y = centerY;
+    this.mapContainer.on("pointermove", (evt) => {
+      const local = this.map?.toLocal(evt.global);
+      this.map?.updatePointerPosition(local, this.cursorAction.mode);
+    });
+    let startPos: Point | null = null;
+    this.mapContainer
+      .on("pointerdown", (evt) => {
+        startPos = evt.global.clone();
+      })
+      .on("pointerup", (evt) => {
+        const endPos = evt.global;
+        if (startPos === null) return;
+        // drag protection
+        const moved =
+          Math.abs(endPos.x - startPos.x) + Math.abs(endPos.y - startPos.y) > 6;
+        startPos = null;
+        if (moved || !this.map) return;
+        const isWheelClick = evt.button === 1;
+        if (isWheelClick) return;
+        const isRightClick = evt.button === 2;
+        const action = this.cursorAction;
+        const local = this.map.toLocal(evt.global);
+        if (isRightClick || action.mode === "remove") {
+          this.map.removeEntityAtPointerPosition(local);
+        } else {
+          this.map.addEntityAtPointerPosition(local, action);
+        }
+        const isTouch = evt.pointerType === "touch";
+        if (!isTouch) {
+          this.map.updatePointerPosition(local, this.cursorAction.mode);
+        }
+      });
 
     this.tileFragmentsTextures = new TileFragmentsTextures();
 
     this.cursorAction = {
       entityType: "tile",
-      type: "dirt",
+      type: "dirt" as TileType,
       mode: "add",
     };
 
@@ -93,24 +132,20 @@ export class GameScreen extends Container {
   };
 
   public extractToJson = async () => {
-    if (!this.map) return;
-    const json = this.map.toJson();
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "map.json";
-    link.click();
+    // if (!this.map) return;
+    // const json = this.map.toJson();
+    // const blob = new Blob([json], { type: "application/json" });
+    // const url = URL.createObjectURL(blob);
+    // const link = document.createElement("a");
+    // link.href = url;
+    // link.download = "map.json";
+    // link.click();
   };
 
   /** Prepare the screen just before showing */
   public prepare(mapData: MapData) {
     this.map?.destroy({ children: true });
-    this.map = new Map(
-      mapData,
-      () => this.cursorAction,
-      this.tileFragmentsTextures
-    );
+    this.map = new Map(mapData, this.tileFragmentsTextures);
     this.mapContainer.addChild(this.map);
   }
 

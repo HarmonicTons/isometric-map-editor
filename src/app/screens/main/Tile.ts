@@ -1,52 +1,62 @@
-import { Container, Polygon, Sprite, Texture } from "pixi.js";
-import { IsoCoordinates, IsoDirection } from "./IsometricCoordinate";
+import { Container } from "pixi.js";
+import {
+  GlobalIsoCoordinates,
+  IsoCoordinates,
+  LocalIsoCoordinates,
+} from "./IsometricCoordinate";
+import type { MapChunk } from "./MapChunk";
 import { NoTextureFoundError } from "./NoTextureFoundError";
 import { TileFragment, tileFragmentKeys } from "./TileFragment";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 
-export type GetTileNeighbor = (
-  relativeCoordinates: IsoCoordinates
-) => string | undefined;
+/**
+ * The type of a tile (e.g. "dirt", "wall").
+ */
+export type TileType = string & { readonly __brand: "TileType" };
+
+export type GetTileTypeAt = (iso: GlobalIsoCoordinates) => TileType | undefined;
 
 /**
  * An isometric tile
  */
 export class Tile extends Container {
-  public type: string;
-  public isoCoordinates: IsoCoordinates;
+  public type: TileType;
+  public localIsoCoordinates: LocalIsoCoordinates;
+  public globalIsoCoordinates: GlobalIsoCoordinates;
   public tileFragmentsTextures: TileFragmentsTextures;
-  public getTileNeighbor: GetTileNeighbor;
+  public getTileTypeAt: GetTileTypeAt;
+  public chunk: MapChunk;
   constructor({
     type,
-    getTileNeighbor,
-    isoCoordinates,
-    disableCursor = false,
+    getTileTypeAt,
+    localIsoCoordinates,
+    globalIsoCoordinates,
     tileFragmentsTextures,
+    chunk,
+    skipFragmentsSetup,
   }: {
     /**
      * the type, ex: wall or stone
      */
-    type: string;
-    getTileNeighbor: GetTileNeighbor;
-    isoCoordinates: IsoCoordinates;
-    disableCursor?: boolean;
+    type: TileType;
+    getTileTypeAt: GetTileTypeAt;
+    localIsoCoordinates: LocalIsoCoordinates;
+    globalIsoCoordinates: GlobalIsoCoordinates;
     tileFragmentsTextures: TileFragmentsTextures;
+    chunk: MapChunk;
+    skipFragmentsSetup?: boolean;
   }) {
     super();
     this.type = type;
-    this.isoCoordinates = isoCoordinates;
+    this.localIsoCoordinates = localIsoCoordinates;
+    this.globalIsoCoordinates = globalIsoCoordinates;
     this.tileFragmentsTextures = tileFragmentsTextures;
-    this.getTileNeighbor = getTileNeighbor;
+    this.getTileTypeAt = getTileTypeAt;
+    this.chunk = chunk;
+    this.eventMode = "none";
 
-    this.interactive = true;
-    // The hit area is a polygon that covers the entire tile (hexagon shape)
-    this.hitArea = new Polygon([
-      0, 7, 15, 0, 17, 0, 32, 7, 32, 16, 17, 23, 15, 23, 0, 16,
-    ]);
-
-    this.setTileFragments();
-    if (!disableCursor) {
-      this.addCursor();
+    if (!skipFragmentsSetup) {
+      this.setTileFragments();
     }
   }
 
@@ -54,30 +64,10 @@ export class Tile extends Container {
     return this.children.length > 0;
   }
 
-  /**
-   * Get the side of the tile that was clicked based on the local coordinates of the click
-   */
-  public static getSideFromLocalCoordinates({
-    x,
-    y,
-  }: {
-    x: number;
-    y: number;
-  }): IsoDirection {
-    if (x < 16) {
-      if (7.5 + x / 2 >= y) {
-        return "up";
-      }
-      return "south";
-    }
-    if (23.5 - x / 2 >= y) {
-      return "up";
-    }
-    return "east";
-  }
-
   public updateNeighborhood() {
-    this.removeChildren();
+    this.removeChildren().forEach((child) => {
+      child.destroy();
+    });
     this.setTileFragments();
   }
 
@@ -87,8 +77,9 @@ export class Tile extends Container {
         const fragment = new TileFragment({
           type: this.type,
           key,
-          getTileNeighbor: this.getTileNeighbor,
-          height: this.isoCoordinates.u,
+          getTileNeighbor: (relative: IsoCoordinates) =>
+            this.getTileTypeAt(this.globalIsoCoordinates.add(relative)),
+          height: this.globalIsoCoordinates.u,
           tileFragmentsTextures: this.tileFragmentsTextures,
         });
         this.addChild(fragment);
@@ -99,52 +90,6 @@ export class Tile extends Container {
         }
         throw e;
       }
-    });
-  }
-
-  /**
-   * Add a cursor that indicates where a new tile will be added
-   */
-  private addCursor() {
-    const cursorUTexture = Texture.from("cursor-u.png");
-    const cursorUSprite = new Sprite(cursorUTexture);
-
-    const cursorETexture = Texture.from("cursor-e.png");
-    const cursorESprite = new Sprite(cursorETexture);
-    cursorESprite.anchor.set(-1, -0.5);
-
-    const cursorSTexture = Texture.from("cursor-s.png");
-    const cursorSSprite = new Sprite(cursorSTexture);
-    cursorSSprite.anchor.set(0, -0.5);
-
-    this.on("mousemove", (evt) => {
-      const side = Tile.getSideFromLocalCoordinates(evt.getLocalPosition(this));
-      if (side === "up") {
-        this.addChild(cursorUSprite);
-      }
-      if (side === "east") {
-        this.addChild(cursorESprite);
-      }
-      if (side === "south") {
-        this.addChild(cursorSSprite);
-      }
-    });
-    this.on("mousemove", (evt) => {
-      const side = Tile.getSideFromLocalCoordinates(evt.getLocalPosition(this));
-      if (side !== "up") {
-        this.removeChild(cursorUSprite);
-      }
-      if (side !== "east") {
-        this.removeChild(cursorESprite);
-      }
-      if (side !== "south") {
-        this.removeChild(cursorSSprite);
-      }
-    });
-    this.on("mouseleave", () => {
-      this.removeChild(cursorUSprite);
-      this.removeChild(cursorESprite);
-      this.removeChild(cursorSSprite);
     });
   }
 }

@@ -1,11 +1,15 @@
 import { Container, Graphics, Sprite } from "pixi.js";
-import { MapObject } from "./MapObject";
-import { Tile } from "./Tile";
+import { MapObject, MapObjectType } from "./MapObject";
+import { Tile, TileType } from "./Tile";
 import { engine } from "../../getEngine";
 import { FancyButton } from "@pixi/ui";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
-import { IsoCoordinates } from "./IsometricCoordinate";
+import {
+  GlobalIsoCoordinates,
+  LocalIsoCoordinates,
+} from "./IsometricCoordinate";
 import { CursorAction } from "./GameScreen";
+import { MapChunk } from "./MapChunk";
 
 const buttonAnimations = {
   hover: {
@@ -33,14 +37,14 @@ const tilesets = [
   "dirt_stones",
   "dirt_pile",
   "dirt_bush",
-] as const;
+] as TileType[];
 
 const mapObjects = [
   "flower",
   "small_pine",
   "large_pine",
   "large-rock",
-] as const;
+] as MapObjectType[];
 
 type Control = {
   button: FancyButton;
@@ -60,8 +64,8 @@ export class ControlBar extends Container {
     getCursorAction,
   }: {
     onClickRemove: () => void;
-    onClickTile: (type: string) => void;
-    onClickObject: (type: string) => void;
+    onClickTile: (type: TileType) => void;
+    onClickObject: (type: MapObjectType) => void;
     tileFragmentsTextures: TileFragmentsTextures;
     getCursorAction: () => CursorAction;
   }) {
@@ -113,16 +117,18 @@ export class ControlBar extends Container {
     this.addChild(removeButton);
     this.controls.push({ button: removeButton, type: "remove" });
 
-    const isoCoordinates = new IsoCoordinates(0, 0, 0);
+    const localIsoCoordinates = new LocalIsoCoordinates(0, 0, 0);
+    const globalIsoCoordinates = new GlobalIsoCoordinates(0, 0, 0);
 
     tilesets.forEach((type) => {
       const button = new FancyButton({
         defaultView: new Tile({
-          isoCoordinates,
+          localIsoCoordinates,
+          globalIsoCoordinates,
           type,
-          getTileNeighbor: () => undefined,
-          disableCursor: true,
+          getTileTypeAt: () => undefined,
           tileFragmentsTextures,
+          chunk: undefined as unknown as MapChunk,
         }),
         scale: 1.5,
         anchor: 0.5,
@@ -138,10 +144,7 @@ export class ControlBar extends Container {
 
     mapObjects.forEach((type) => {
       const button = new FancyButton({
-        defaultView: new MapObject({
-          isoCoordinates,
-          type,
-        }),
+        defaultView: new Sprite(MapObject.getTexture(type)),
         scale: 1.5,
         anchor: 0.5,
         animations: buttonAnimations,
