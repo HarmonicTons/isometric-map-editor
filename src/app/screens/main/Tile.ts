@@ -65,7 +65,9 @@ export class Tile extends Container {
   }
 
   public updateNeighborhood() {
-    this.removeChildren();
+    this.removeChildren().forEach((child) => {
+      child.destroy();
+    });
     this.setTileFragments();
   }
 

@@ -46,7 +46,14 @@ export class MapChunk extends Container {
     for (const key of Object.keys(chunkTileData) as IsoString[]) {
       const type = chunkTileData[key];
       if (!type) continue;
-      this.assertInside(LocalIsoCoordinates.fromString(key));
+      try {
+        this.assertInside(LocalIsoCoordinates.fromString(key));
+      } catch (e) {
+        console.warn(
+          `Ignoring tile at ${key} in chunk ${this.chunkIsoCoordinates.toString()}: ${e}`
+        );
+        continue;
+      }
       this.cells[key] = type;
     }
   }

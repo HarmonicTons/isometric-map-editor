@@ -71,17 +71,21 @@ export class GameScreen extends Container {
         const moved =
           Math.abs(endPos.x - startPos.x) + Math.abs(endPos.y - startPos.y) > 6;
         startPos = null;
-        if (moved) return;
+        if (moved || !this.map) return;
         const isWheelClick = evt.button === 1;
         if (isWheelClick) return;
         const isRightClick = evt.button === 2;
         const action = this.cursorAction;
-        const local = this.map?.toLocal(evt.global);
+        const local = this.map.toLocal(evt.global);
         if (isRightClick || action.mode === "remove") {
-          this.map?.removeEntityAtPointerPosition(local);
-          return;
+          this.map.removeEntityAtPointerPosition(local);
+        } else {
+          this.map.addEntityAtPointerPosition(local, action);
         }
-        this.map?.addEntityAtPointerPosition(local, action);
+        const isTouch = evt.pointerType === "touch";
+        if (!isTouch) {
+          this.map.updatePointerPosition(local, this.cursorAction.mode);
+        }
       });
 
     this.tileFragmentsTextures = new TileFragmentsTextures();

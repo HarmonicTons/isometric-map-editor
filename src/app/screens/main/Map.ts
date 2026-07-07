@@ -7,6 +7,7 @@ import {
   LocalIsoCoordinates,
   MAP_MAX_HEIGHT,
   VisibleIsoDirection,
+  visibleIsoDirections,
 } from "./IsometricCoordinate";
 import { CellContent, ChunkTileData, MapChunk } from "./MapChunk";
 import { MapObject, MapObjectType } from "./MapObject";
@@ -156,7 +157,7 @@ export class Map extends Container {
    * neighbors is not a tile (its fragments can only be visible in that case)
    */
   private isInShell(iso: GlobalIsoCoordinates): boolean {
-    return isoDirections.some(
+    return visibleIsoDirections.some(
       (direction) => this.getTileTypeAt(iso.move(direction)) === undefined
     );
   }
@@ -397,34 +398,48 @@ export class Map extends Container {
     this.hoveredEntity = newHoveredEntity;
   }
 
-  public removeEntityAtPointerPosition(
-    localPosition: { x: number; y: number } | undefined
-  ) {
-    if (!this.hoveredEntity) return;
-    this.removeEntityAt(this.hoveredEntity.entity.globalIsoCoordinates);
-    this.updatePointerPosition(localPosition);
+  public removeEntityAtPointerPosition(localPosition: {
+    x: number;
+    y: number;
+  }) {
+    const hoveredEntity = this.getEntityAtPixelPosition(
+      localPosition.x,
+      localPosition.y
+    );
+    if (!hoveredEntity) return;
+    this.removeEntityAt(hoveredEntity.entity.globalIsoCoordinates);
   }
 
   public addEntityAtPointerPosition(
-    localPosition: { x: number; y: number } | undefined,
+    localPosition: { x: number; y: number },
     action:
       | { entityType: "tile"; type: TileType }
       | { entityType: "object"; type: MapObjectType }
   ) {
-    if (!this.hoveredEntity) return;
-    const { side, iso } = this.hoveredEntity;
+    const hoveredEntity = this.getEntityAtPixelPosition(
+      localPosition.x,
+      localPosition.y
+    );
+    if (!hoveredEntity) return;
+    const { side, iso } = hoveredEntity;
     const target = iso.move(side);
     if (action.entityType === "tile") {
       this.addTileAt(target, action.type);
     } else {
       this.addMapObjectAt(target, action.type);
     }
-    this.updatePointerPosition(localPosition);
   }
 
   public update(time: Ticker) {
     if (!this.hoveredEntity) return;
     const pulse = 0.5 + 0.5 * Math.sin((time.lastTime / 800) * Math.PI * 2);
     this.cursorSprites[this.hoveredEntity.side].alpha = 0.3 + 0.7 * pulse;
+  }
+
+  public destroy(options?: { children?: boolean; texture?: boolean }) {
+    this.cursorSprites.up.destroy();
+    this.cursorSprites.east.destroy();
+    this.cursorSprites.south.destroy();
+    super.destroy(options);
   }
 }
