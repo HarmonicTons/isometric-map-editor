@@ -60,8 +60,13 @@ export class IsoCoordinates {
     ) => this;
     return new Ctor(this.s + offset.s, this.e + offset.e, this.u + offset.u);
   }
+
   public move(direction: IsoDirection): this {
     return this.add(IsoCoordinates.directionsOffsets[direction]);
+  }
+
+  public equals(other?: IsoCoordinates): boolean {
+    return this.s === other?.s && this.e === other?.e && this.u === other?.u;
   }
 
   public paintersOrderKey(uMax: number) {

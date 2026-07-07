@@ -1,4 +1,4 @@
-import { Container, DestroyOptions, Ticker } from "pixi.js";
+import { Container, DestroyOptions, Sprite, Ticker } from "pixi.js";
 import {
   ChunkIsoCoordinates,
   GlobalIsoCoordinates,
@@ -104,6 +104,7 @@ export class MapChunk extends Container {
     const globalIso = this.toGlobalIsoCoordinates(iso);
     const mapObject = new MapObject({
       type,
+      localIsoCoordinates: iso,
       globalIsoCoordinates: globalIso,
       chunk: this,
     });
@@ -171,6 +172,14 @@ export class MapChunk extends Container {
     }
     this.entities = {};
     super.destroy(options);
+  }
+
+  public addCursorSpriteAt(iso: LocalIsoCoordinates, sprite: Sprite) {
+    const xy = iso.toXY();
+    sprite.x = xy.x;
+    sprite.y = xy.y;
+    sprite.zIndex = iso.paintersOrderKey(MAP_MAX_HEIGHT);
+    this.addChild(sprite);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

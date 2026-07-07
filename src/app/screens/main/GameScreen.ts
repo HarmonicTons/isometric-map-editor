@@ -50,7 +50,7 @@ export class GameScreen extends Container {
     this.mapContainer.y = centerY;
     this.mapContainer.on("pointermove", (evt) => {
       const local = this.map?.toLocal(evt.global);
-      this.map?.updatePointerPosition(local);
+      this.map?.updatePointerPosition(local, this.cursorAction.mode);
     });
     let startPos: Point | null = null;
     this.mapContainer

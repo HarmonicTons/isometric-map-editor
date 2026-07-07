@@ -1,4 +1,4 @@
-import { Container, Ticker } from "pixi.js";
+import { Container, Sprite, Texture, Ticker } from "pixi.js";
 import {
   ChunkIsoCoordinates,
   GlobalIsoCoordinates,
@@ -35,7 +35,13 @@ export class Map extends Container {
   public hoveredEntity?: {
     entity: Tile | MapObject;
     side: VisibleIsoDirection;
+    iso: GlobalIsoCoordinates;
   };
+  private cursorSprites: Record<VisibleIsoDirection, Sprite> = {} as Record<
+    VisibleIsoDirection,
+    Sprite
+  >;
+  private cursorMode?: "add" | "remove";
 
   constructor(
     mapData: MapData,
@@ -74,6 +80,23 @@ export class Map extends Container {
       const globalIso = GlobalIsoCoordinates.fromString(key);
       this.addMapObjectAt(globalIso, type);
     }
+
+    const cursorUTexture = Texture.from("cursor-u.png");
+    const cursorUSprite = new Sprite(cursorUTexture);
+
+    const cursorETexture = Texture.from("cursor-e.png");
+    const cursorESprite = new Sprite(cursorETexture);
+    cursorESprite.anchor.set(-1, -0.5);
+
+    const cursorSTexture = Texture.from("cursor-s.png");
+    const cursorSSprite = new Sprite(cursorSTexture);
+    cursorSSprite.anchor.set(0, -0.5);
+
+    this.cursorSprites = {
+      up: cursorUSprite,
+      east: cursorESprite,
+      south: cursorSSprite,
+    };
   }
 
   /** Chunks are columns: their iso coordinates have no u component. */
@@ -147,6 +170,7 @@ export class Map extends Container {
     const entity = chunk.getEntityAt(this.toLocalIso(iso));
     if (!entity) return;
     if (this.hoveredEntity?.entity === entity) {
+      chunk.removeChild(this.cursorSprites[this.hoveredEntity.side]);
       this.hoveredEntity = undefined;
     }
     chunk.removeEntityAt(this.toLocalIso(iso));
@@ -229,7 +253,13 @@ export class Map extends Container {
   public getEntityAtPixelPosition(
     px: number,
     py: number
-  ): { entity: Tile | MapObject; side: VisibleIsoDirection } | undefined {
+  ):
+    | {
+        entity: Tile | MapObject;
+        side: VisibleIsoDirection;
+        iso: GlobalIsoCoordinates;
+      }
+    | undefined {
     const w = (px - 16) / 16;
     const m = (py - 8) / 8;
 
@@ -262,16 +292,37 @@ export class Map extends Container {
         side = "east";
       }
 
+      const iso = new GlobalIsoCoordinates(si, ei, ui);
       const entity = this.getEntityAt(new GlobalIsoCoordinates(si, ei, ui));
-      if (entity) return { entity, side };
+      if (entity) return { entity, side, iso };
     }
     return undefined;
   }
 
+  public setCursorMode(mode: "add" | "remove") {
+    if (this.cursorMode === mode) return;
+    this.cursorMode = mode;
+    if (mode === "add") {
+      const blue = 0x0000ff;
+      this.cursorSprites.up.tint = blue;
+      this.cursorSprites.east.tint = blue;
+      this.cursorSprites.south.tint = blue;
+    } else if (mode === "remove") {
+      const red = 0xff0000;
+      this.cursorSprites.up.tint = red;
+      this.cursorSprites.east.tint = red;
+      this.cursorSprites.south.tint = red;
+    }
+  }
+
   public updatePointerPosition(
-    localPosition: { x: number; y: number } | undefined
+    localPosition: { x: number; y: number } | undefined,
+    mode?: "add" | "remove"
   ) {
     if (!localPosition) return;
+    if (mode) {
+      this.setCursorMode(mode);
+    }
     // find first tile under the pointer
     const newHoveredEntity = this.getEntityAtPixelPosition(
       localPosition.x,
@@ -280,13 +331,19 @@ export class Map extends Container {
 
     if (
       newHoveredEntity?.entity !== this.hoveredEntity?.entity ||
-      newHoveredEntity?.side !== this.hoveredEntity?.side
+      newHoveredEntity?.side !== this.hoveredEntity?.side ||
+      !newHoveredEntity?.iso.equals(this.hoveredEntity?.iso)
     ) {
-      if (this.hoveredEntity?.entity instanceof Tile) {
-        this.hoveredEntity.entity.setHovered(false, undefined);
+      if (this.hoveredEntity?.entity) {
+        this.hoveredEntity.entity.chunk.removeChild(
+          this.cursorSprites[this.hoveredEntity.side]
+        );
       }
-      if (newHoveredEntity?.entity instanceof Tile) {
-        newHoveredEntity.entity.setHovered(true, newHoveredEntity.side);
+      if (newHoveredEntity?.entity) {
+        newHoveredEntity.entity.chunk.addCursorSpriteAt(
+          this.toLocalIso(newHoveredEntity.iso),
+          this.cursorSprites[newHoveredEntity.side]
+        );
       }
     }
     this.hoveredEntity = newHoveredEntity;
@@ -306,12 +363,8 @@ export class Map extends Container {
     type: string
   ) {
     if (!this.hoveredEntity) return;
-    const { entity, side } = this.hoveredEntity;
-    if (entity instanceof MapObject) {
-      // TODO add from an object is disabled because no UI element show that it's possible
-      return;
-    }
-    const target = entity.globalIsoCoordinates.move(side);
+    const { side, iso } = this.hoveredEntity;
+    const target = iso.move(side);
     if (entityType === "tile") {
       this.addTileAt(target, type);
     } else if (entityType === "object") {
@@ -320,6 +373,9 @@ export class Map extends Container {
     this.updatePointerPosition(localPosition);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  public update(_time: Ticker) {}
+  public update(time: Ticker) {
+    if (!this.hoveredEntity) return;
+    const pulse = 0.5 + 0.5 * Math.sin((time.lastTime / 800) * Math.PI * 2);
+    this.cursorSprites[this.hoveredEntity.side].alpha = 0.3 + 0.7 * pulse;
+  }
 }

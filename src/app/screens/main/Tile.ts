@@ -1,14 +1,13 @@
-import { Container, Sprite, Texture } from "pixi.js";
+import { Container } from "pixi.js";
 import {
   GlobalIsoCoordinates,
   IsoCoordinates,
   LocalIsoCoordinates,
-  VisibleIsoDirection,
 } from "./IsometricCoordinate";
+import type { MapChunk } from "./MapChunk";
 import { NoTextureFoundError } from "./NoTextureFoundError";
 import { TileFragment, tileFragmentKeys } from "./TileFragment";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
-import type { MapChunk } from "./MapChunk";
 
 export type GetTileTypeAt = (iso: GlobalIsoCoordinates) => string | undefined;
 
@@ -21,10 +20,6 @@ export class Tile extends Container {
   public globalIsoCoordinates: GlobalIsoCoordinates;
   public tileFragmentsTextures: TileFragmentsTextures;
   public getTileTypeAt: GetTileTypeAt;
-  public cursorSprites: Record<VisibleIsoDirection, Sprite> = {} as Record<
-    VisibleIsoDirection,
-    Sprite
-  >;
   public chunk: MapChunk;
   constructor({
     type,
@@ -58,23 +53,6 @@ export class Tile extends Container {
     if (!skipFragmentsSetup) {
       this.setTileFragments();
     }
-
-    const cursorUTexture = Texture.from("cursor-u.png");
-    const cursorUSprite = new Sprite(cursorUTexture);
-
-    const cursorETexture = Texture.from("cursor-e.png");
-    const cursorESprite = new Sprite(cursorETexture);
-    cursorESprite.anchor.set(-1, -0.5);
-
-    const cursorSTexture = Texture.from("cursor-s.png");
-    const cursorSSprite = new Sprite(cursorSTexture);
-    cursorSSprite.anchor.set(0, -0.5);
-
-    this.cursorSprites = {
-      up: cursorUSprite,
-      east: cursorESprite,
-      south: cursorSSprite,
-    };
   }
 
   public get hasVisibleFragments(): boolean {
@@ -106,15 +84,5 @@ export class Tile extends Container {
         throw e;
       }
     });
-  }
-
-  public setHovered(isHovered: boolean, side?: VisibleIsoDirection) {
-    this.removeChild(this.cursorSprites.up);
-    this.removeChild(this.cursorSprites.east);
-    this.removeChild(this.cursorSprites.south);
-
-    if (isHovered && side) {
-      this.addChild(this.cursorSprites[side]);
-    }
   }
 }

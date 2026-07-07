@@ -1,5 +1,9 @@
 import { Sprite, Texture } from "pixi.js";
-import { GlobalIsoCoordinates, IsoCoordinates } from "./IsometricCoordinate";
+import {
+  GlobalIsoCoordinates,
+  IsoCoordinates,
+  LocalIsoCoordinates,
+} from "./IsometricCoordinate";
 import { NoTextureFoundError } from "./NoTextureFoundError";
 import type { MapChunk } from "./MapChunk";
 
@@ -8,19 +12,20 @@ import type { MapChunk } from "./MapChunk";
  */
 export class MapObject extends Sprite {
   public readonly type: string;
-  /** Anchor: the lowest occupied cell */
+  public readonly localIsoCoordinates: LocalIsoCoordinates;
   public readonly globalIsoCoordinates: GlobalIsoCoordinates;
-  /** Height in cells, derived from the sprite size (see getHeight) */
   public readonly objectHeight: number;
   public readonly occupiedCells: GlobalIsoCoordinates[];
   public chunk: MapChunk;
 
   constructor({
     type,
+    localIsoCoordinates,
     globalIsoCoordinates,
     chunk,
   }: {
     type: string;
+    localIsoCoordinates: LocalIsoCoordinates;
     globalIsoCoordinates: GlobalIsoCoordinates;
     chunk: MapChunk;
   }) {
@@ -28,6 +33,7 @@ export class MapObject extends Sprite {
     super({ texture });
     this.type = type;
     this.anchor.set(0, 1);
+    this.localIsoCoordinates = localIsoCoordinates;
     this.globalIsoCoordinates = globalIsoCoordinates;
 
     this.objectHeight = MapObject.getHeight(type);
