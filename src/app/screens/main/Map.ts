@@ -7,7 +7,7 @@ import {
   IsoString,
   LocalIsoCoordinates,
   MAP_MAX_HEIGHT,
-  VisibleIsoDirection
+  VisibleIsoDirection,
 } from "./IsometricCoordinate";
 import { CellContent, ChunkTileData, MapChunk } from "./MapChunk";
 import { MapObject, MapObjectType } from "./MapObject";
@@ -23,13 +23,13 @@ export type MapData = {
  * Relative coordinates of the tiles to check to know if a tile is in the visible shell or not
  */
 const shellTilesRelativeCoordinates = [
-      new IsoCoordinates(0, 0, 1),
-      new IsoCoordinates(0, 1, 0),
-      new IsoCoordinates(1, 0, 0),
-      new IsoCoordinates(1, 0, 1),
-      new IsoCoordinates(0, 1, 1),
-      new IsoCoordinates(1, 1, 1),
-    ];
+  new IsoCoordinates(0, 0, 1),
+  new IsoCoordinates(0, 1, 0),
+  new IsoCoordinates(1, 0, 0),
+  new IsoCoordinates(1, 0, 1),
+  new IsoCoordinates(0, 1, 1),
+  new IsoCoordinates(1, 1, 1),
+];
 
 /**
  * The map, as a collection of chunks.
@@ -169,7 +169,9 @@ export class Map extends Container {
    * neighbors is not a tile
    */
   private isInShell(iso: GlobalIsoCoordinates): boolean {
-    return shellTilesRelativeCoordinates.some((relative) => this.getCellContentAt(iso.add(relative)) === undefined);
+    return shellTilesRelativeCoordinates.some(
+      (relative) => this.getCellContentAt(iso.add(relative)) === undefined
+    );
   }
 
   public addTileAt(iso: GlobalIsoCoordinates, type: TileType) {
