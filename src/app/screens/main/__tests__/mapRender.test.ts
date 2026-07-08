@@ -27,7 +27,7 @@ const testsDir = path.dirname(fileURLToPath(import.meta.url));
 const mapsDir = path.resolve(testsDir, "../../../../../public/maps");
 const snapshotsDir = path.join(testsDir, "__image_snapshots__");
 
-const SNAPSHOT_MAPS = ["deti-plains", "koring-wood"];
+const SNAPSHOT_MAPS = ["single", "checkboard", "rock-cubes", "dirt-grass",  "rock-grass", "wall-dirt", "deti-plains", "koring-wood", ];
 
 describe("map render snapshots", () => {
   // Map's constructor is chatty
