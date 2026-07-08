@@ -2,12 +2,12 @@ import { Container, Sprite, Texture, Ticker } from "pixi.js";
 import {
   ChunkIsoCoordinates,
   GlobalIsoCoordinates,
+  IsoCoordinates,
   isoDirections,
   IsoString,
   LocalIsoCoordinates,
   MAP_MAX_HEIGHT,
-  VisibleIsoDirection,
-  visibleIsoDirections,
+  VisibleIsoDirection
 } from "./IsometricCoordinate";
 import { CellContent, ChunkTileData, MapChunk } from "./MapChunk";
 import { MapObject, MapObjectType } from "./MapObject";
@@ -18,6 +18,18 @@ export type MapData = {
   objects: Record<string, string>;
   tiles: Record<string, string>;
 };
+
+/**
+ * Relative coordinates of the tiles to check to know if a tile is in the visible shell or not
+ */
+const shellTilesRelativeCoordinates = [
+      new IsoCoordinates(0, 0, 1),
+      new IsoCoordinates(0, 1, 0),
+      new IsoCoordinates(1, 0, 0),
+      new IsoCoordinates(1, 0, 1),
+      new IsoCoordinates(0, 1, 1),
+      new IsoCoordinates(1, 1, 1),
+    ];
 
 /**
  * The map, as a collection of chunks.
@@ -154,12 +166,10 @@ export class Map extends Container {
 
   /**
    * A tile cell deserves a display object iff at least one of its direct
-   * neighbors is not a tile (its fragments can only be visible in that case)
+   * neighbors is not a tile
    */
   private isInShell(iso: GlobalIsoCoordinates): boolean {
-    return visibleIsoDirections.some(
-      (direction) => this.getTileTypeAt(iso.move(direction)) === undefined
-    );
+    return shellTilesRelativeCoordinates.some((relative) => this.getCellContentAt(iso.add(relative)) === undefined);
   }
 
   public addTileAt(iso: GlobalIsoCoordinates, type: TileType) {
