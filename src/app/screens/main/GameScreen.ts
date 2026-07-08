@@ -1,6 +1,6 @@
 import { Viewport } from "pixi-viewport";
-import type { Point, Ticker } from "pixi.js";
-import { Container } from "pixi.js";
+import type { Point, Texture, Ticker } from "pixi.js";
+import { Assets, Container } from "pixi.js";
 import { engine } from "../../getEngine";
 import { Background } from "./Background";
 import { ControlBar } from "./ControlBar";
@@ -88,7 +88,12 @@ export class GameScreen extends Container {
         }
       });
 
-    this.tileFragmentsTextures = new TileFragmentsTextures();
+    // TODO: use another system to register the textures instead of using Pixi's cache
+    // @ts-expect-error hack to access private property
+    const textureCache = Assets.cache._cache as Map<string, Texture>;
+    this.tileFragmentsTextures = new TileFragmentsTextures([
+      ...textureCache.keys(),
+    ]);
 
     this.cursorAction = {
       entityType: "tile",

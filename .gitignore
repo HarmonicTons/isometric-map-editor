@@ -26,3 +26,7 @@ dist-ssr
 public/assets
 .assetpack
 src/manifest.json
+
+# Image snapshot failure artifacts
+*.actual.png
+*.diff.png

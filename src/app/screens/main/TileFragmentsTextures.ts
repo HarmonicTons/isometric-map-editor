@@ -1,5 +1,5 @@
 import { maxBy, sumBy } from "lodash";
-import { Assets, Texture } from "pixi.js";
+import { Texture } from "pixi.js";
 import { IsoCoordinates } from "./IsometricCoordinate";
 import { GetTileNeighbor, TileFragmentKey } from "./TileFragment";
 import type { TileType } from "./Tile";
@@ -38,10 +38,10 @@ const directionMapping: Record<string, IsoCoordinates> = {
 
 export class TileFragmentsTextures {
   public texturesInCache: TextureByTileType;
-  constructor() {
+  constructor(textureNames: string[]) {
     this.texturesInCache = new Map();
 
-    this.init();
+    this.init(textureNames);
   }
 
   public static parseTextureName(textureName: string): TextureData {
@@ -131,13 +131,10 @@ export class TileFragmentsTextures {
     return baseType1 === baseType2;
   }
 
-  private init() {
-    // TODO: use another system to register the textures instead of using Pixi's cache
-    // @ts-expect-error hack to access private property
-    const cache = Assets.cache._cache as Map<string, Texture>;
+  private init(textureNames: string[]) {
     const fragmentTextureRegex =
       /([a-z0-9_]+)-([1-4]{2})-([u,n,e,s,w,d]+:[^,-]+)+(,[u,n,e,s,w,d]+:[^,-]+)*(-\d+:\d+)?\.png/;
-    const validTextures = [...cache.keys()].filter((k) =>
+    const validTextures = textureNames.filter((k) =>
       fragmentTextureRegex.test(k)
     );
     validTextures.forEach((textureName) => {
@@ -178,7 +175,11 @@ export class TileFragmentsTextures {
     );
   }
 
-  public getFragmentTexture(fragmentData: FragmentData): Texture | null {
+  /**
+   * The name of the best matching texture for this fragment, or null if none
+   * matches.
+   */
+  public getFragmentTextureName(fragmentData: FragmentData): string | null {
     const [type, variant] = fragmentData.type.split("_") as [
       TileType,
       string | undefined,
@@ -197,12 +198,14 @@ export class TileFragmentsTextures {
       return null;
     }
 
-    const textureData = maxBy(validTextures, "score")!;
+    return maxBy(validTextures, "score")!.name;
+  }
 
-    const texture = Texture.from(textureData.name);
-    if (!texture) {
+  public getFragmentTexture(fragmentData: FragmentData): Texture | null {
+    const textureName = this.getFragmentTextureName(fragmentData);
+    if (!textureName) {
       return null;
     }
-    return texture;
+    return Texture.from(textureName) ?? null;
   }
 }
