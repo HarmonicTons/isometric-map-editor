@@ -79,14 +79,26 @@ const generateTopFacesAtlas = (tiles) => {
         frame: frame(i * 32 + 24, 24),
       },
 
+      [`${tile}-11-w:1.png`]: {
+        frame: frame(i * 32, 32),
+      },
       [`${tile}-11-w:1,wu:1,u:!.png`]: {
         frame: frame(i * 32, 32),
+      },
+      [`${tile}-12-w:1.png`]: {
+        frame: frame(i * 32 + 8, 32),
       },
       [`${tile}-12-w:1,wu:1,u:!.png`]: {
         frame: frame(i * 32 + 8, 32),
       },
+      [`${tile}-13-n:1.png`]: {
+        frame: frame(i * 32 + 16, 32),
+      },
       [`${tile}-13-n:1,nu:1,u:!.png`]: {
         frame: frame(i * 32 + 16, 32),
+      },
+      [`${tile}-14-n:1.png`]: {
+        frame: frame(i * 32 + 24, 32),
       },
       [`${tile}-14-n:1,nu:1,u:!.png`]: {
         frame: frame(i * 32 + 24, 32),
