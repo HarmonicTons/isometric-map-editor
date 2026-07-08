@@ -1,19 +1,25 @@
 /**
- * Use this script to generate the atlas of the tiles top faces
+ * Regenerates the top-faces spritesheet atlas (raw-assets/game{m}/top-faces.json),
+ * which describes every fragment of top-faces.png: all the possible combinations
+ * of neighboring tiles with custom sprites.
  */
-export const generateTopFacesAtlas = (
-  tiles: string[] = [
-    "dirt",
-    "dirt_grass1",
-    "dirt_grass2",
-    "dirt_stones",
-    "dirt_pile",
-    "dirt_bush",
-    "rock",
-    "rock_moss",
-  ]
-) => {
-  const frame = (x: number, y: number) => ({
+import { writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const DEFAULT_TILES = [
+  "dirt",
+  "dirt_grass1",
+  "dirt_grass2",
+  "dirt_stones",
+  "dirt_pile",
+  "dirt_bush",
+  "rock",
+  "rock_moss",
+];
+
+const generateTopFacesAtlas = (tiles) => {
+  const frame = (x, y) => ({
     x,
     y,
     w: 8,
@@ -130,3 +136,21 @@ export const generateTopFacesAtlas = (
     },
   };
 };
+
+const tiles = process.argv.slice(2).length
+  ? process.argv.slice(2)
+  : DEFAULT_TILES;
+const atlas = generateTopFacesAtlas(tiles);
+
+const outputPath = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "raw-assets",
+  "game{m}",
+  "top-faces.json"
+);
+writeFileSync(outputPath, JSON.stringify(atlas, null, 2) + "\n");
+
+console.log(
+  `Atlas written to ${outputPath} (${Object.keys(atlas.frames).length} frames, ${tiles.length} tile types)`
+);
