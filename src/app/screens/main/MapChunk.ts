@@ -9,6 +9,7 @@ import {
 import { MapObject, MapObjectType } from "./MapObject";
 import { Tile, TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
+import { Character } from "./Character";
 
 export type ChunkTileData = Record<IsoString, TileType>;
 
@@ -175,7 +176,7 @@ export class MapChunk extends Container {
       chunk: this,
     });
     const xy = iso.toXY();
-    mapObject.x = xy.x;
+    mapObject.x = xy.x + 16;
     mapObject.y = xy.y + 24;
     mapObject.zIndex = iso.paintersOrderKey(MAP_MAX_HEIGHT);
     this.addChild(mapObject);
@@ -256,6 +257,22 @@ export class MapChunk extends Container {
     sprite.y = xy.y;
     sprite.zIndex = iso.paintersOrderKey(MAP_MAX_HEIGHT);
     this.addChild(sprite);
+  }
+
+  public addCharacterAt(iso: LocalIsoCoordinates, character: Character) {
+    this.positionCharacterAt(iso, character);
+    this.addChild(character);
+  }
+
+  public positionCharacterAt(iso: LocalIsoCoordinates, character: Character) {
+    const xy = iso.toXY();
+    character.x = xy.x + 16;
+    character.y = xy.y + 24;
+    character.zIndex = new LocalIsoCoordinates(
+      Math.ceil(iso.s),
+      Math.ceil(iso.e),
+      iso.u
+    ).paintersOrderKey(MAP_MAX_HEIGHT);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

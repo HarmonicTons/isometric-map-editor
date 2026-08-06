@@ -66,6 +66,15 @@ export class IsoCoordinates {
     return new Ctor(this.s + offset.s, this.e + offset.e, this.u + offset.u);
   }
 
+  public multiply(factor: number): this {
+    const Ctor = this.constructor as new (
+      s: number,
+      e: number,
+      u: number
+    ) => this;
+    return new Ctor(this.s * factor, this.e * factor, this.u * factor);
+  }
+
   public move(direction: IsoDirection): this {
     return this.add(IsoCoordinates.directionsOffsets[direction]);
   }

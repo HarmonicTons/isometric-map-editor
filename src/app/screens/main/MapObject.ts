@@ -37,7 +37,7 @@ export class MapObject extends Sprite {
     const texture = MapObject.getTexture(type);
     super({ texture });
     this.type = type;
-    this.anchor.set(0, 1);
+    this.anchor.set(0.5, 1);
     this.localIsoCoordinates = localIsoCoordinates;
     this.globalIsoCoordinates = globalIsoCoordinates;
 

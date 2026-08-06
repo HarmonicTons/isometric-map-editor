@@ -5,9 +5,9 @@ import { engine } from "../../getEngine";
 import { Background } from "./Background";
 import { ControlBar } from "./ControlBar";
 import { Map, MapData } from "./Map";
-import { TileFragmentsTextures } from "./TileFragmentsTextures";
-import type { TileType } from "./Tile";
 import type { MapObjectType } from "./MapObject";
+import type { TileType } from "./Tile";
+import { TileFragmentsTextures } from "./TileFragmentsTextures";
 
 export type CursorAction =
   | {
@@ -87,6 +87,12 @@ export class GameScreen extends Container {
           this.map.updatePointerPosition(local, this.cursorAction.mode);
         }
       });
+
+    window.addEventListener("gamepadconnected", (e) => {
+      console.log(`Gamepad connected : ${e.gamepad.id}`);
+      if (!this.map) return;
+      this.map.gamepadIndex = e.gamepad.index;
+    });
 
     // TODO: use another system to register the textures instead of using Pixi's cache
     // @ts-expect-error hack to access private property

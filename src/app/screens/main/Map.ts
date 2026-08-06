@@ -13,10 +13,12 @@ import { CellContent, ChunkTileData, MapChunk } from "./MapChunk";
 import { MapObject, MapObjectType } from "./MapObject";
 import { Tile, TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
+import { Character, CharacterType } from "./Character";
 
 export type MapData = {
   objects: Record<string, string>;
   tiles: Record<string, string>;
+  characters: Record<string, string>;
 };
 
 /**
@@ -57,6 +59,9 @@ export class Map extends Container {
   >;
   private cursorMode?: "add" | "remove";
 
+  public character: Character | undefined;
+  public gamepadIndex: number | undefined;
+
   constructor(
     mapData: MapData,
     public tileFragmentsTextures: TileFragmentsTextures
@@ -96,6 +101,13 @@ export class Map extends Container {
       this.addMapObjectAt(globalIso, type as MapObjectType);
     }
 
+    for (const key in mapData.characters) {
+      const type = mapData.characters[key];
+      if (!type) continue;
+      const globalIso = GlobalIsoCoordinates.fromString(key);
+      this.addCharacterAt(globalIso, type as CharacterType);
+    }
+
     const cursorUTexture = Texture.from("cursor-u.png");
     const cursorUSprite = new Sprite(cursorUTexture);
 
@@ -118,8 +130,8 @@ export class Map extends Container {
   private toChunkIso(iso: GlobalIsoCoordinates): ChunkIsoCoordinates {
     const size = this.chunksSize;
     return new ChunkIsoCoordinates(
-      Math.floor(iso.s / size),
-      Math.floor(iso.e / size),
+      Math.floor(Math.ceil(iso.s) / size),
+      Math.floor(Math.ceil(iso.e) / size),
       0
     );
   }
@@ -200,7 +212,10 @@ export class Map extends Container {
       return;
     }
 
-    this.getOrCreateChunkAt(iso).createMapObject(this.toLocalIso(iso), type);
+    return this.getOrCreateChunkAt(iso).createMapObject(
+      this.toLocalIso(iso),
+      type
+    );
   }
 
   public removeEntityAt(iso: GlobalIsoCoordinates) {
@@ -442,10 +457,148 @@ export class Map extends Container {
     }
   }
 
+  /**
+   * Return the list of cells a character can be standing on
+   * ex: character is at (0, 0, 1), the cells beneath are (0, 0, 0)
+   * character is at (0.5, 0, 1), the cells beneath are (0, 0, 0) and (1, 0, 0)
+   * ex: character is at (0.5, 0.5, 1), the cells beneath are (0, 0, 0), (1, 0, 0), (0, 1, 0) and (1, 1, 0)
+   */
+  public getCellsCharacterIsStandingOn(
+    iso: GlobalIsoCoordinates
+  ): Array<CellContent> {
+    const cells: Array<CellContent> = [];
+    const s0 = Math.floor(iso.s);
+    const s1 = Math.ceil(iso.s);
+    const e0 = Math.floor(iso.e);
+    const e1 = Math.ceil(iso.e);
+    const u = iso.u - 1;
+    for (const s of [s0, s1]) {
+      for (const e of [e0, e1]) {
+        const cell = this.getCellContentAt(new GlobalIsoCoordinates(s, e, u));
+        if (cell) {
+          cells.push(cell);
+        }
+      }
+    }
+
+    return cells;
+  }
+
+  public getCellsOccupiedByCharacter(
+    iso: GlobalIsoCoordinates
+  ): Array<CellContent> {
+    const cells: Array<CellContent> = [];
+    const s0 = Math.floor(iso.s);
+    const s1 = Math.ceil(iso.s);
+    const e0 = Math.floor(iso.e);
+    const e1 = Math.ceil(iso.e);
+    const u0 = iso.u;
+    for (const s of [s0, s1]) {
+      for (const e of [e0, e1]) {
+        for (const u of [u0, u0 + 1]) {
+          const cell = this.getCellContentAt(new GlobalIsoCoordinates(s, e, u));
+          if (cell) {
+            cells.push(cell);
+          }
+        }
+      }
+    }
+
+    return cells;
+  }
+
+  public addCharacterAt(globalIso: GlobalIsoCoordinates, type: CharacterType) {
+    this.character = new Character({
+      type,
+      globalIsoCoordinates: globalIso,
+      localIsoCoordinates: this.toLocalIso(globalIso),
+      chunk: this.getOrCreateChunkAt(globalIso),
+      direction: "south",
+    });
+    this.character.chunk.addCharacterAt(
+      this.character.localIsoCoordinates,
+      this.character
+    );
+  }
+
   public update(time: Ticker) {
-    if (!this.hoveredEntity) return;
-    const pulse = 0.5 + 0.5 * Math.sin((time.lastTime / 800) * Math.PI * 2);
-    this.cursorSprites[this.hoveredEntity.side].alpha = 0.3 + 0.7 * pulse;
+    if (this.hoveredEntity) {
+      const pulse = 0.5 + 0.5 * Math.sin((time.lastTime / 800) * Math.PI * 2);
+      this.cursorSprites[this.hoveredEntity.side].alpha = 0.3 + 0.7 * pulse;
+    }
+
+    if (this.character) {
+      this.character.update(time);
+
+      let deltaX = 0;
+      let deltaY = 0;
+      const speed = 2;
+
+      if (this.gamepadIndex !== undefined) {
+        const gamepad = navigator.getGamepads()[this.gamepadIndex]!;
+        const [leftStickX, leftStickY] = gamepad.axes; // stick gauche
+        const deadzone = 0.15;
+        deltaX =
+          Math.abs(leftStickX) > deadzone
+            ? leftStickX * (time.deltaMS / 1000)
+            : 0;
+        deltaY =
+          Math.abs(leftStickY) > deadzone
+            ? leftStickY * (time.deltaMS / 1000) * 2
+            : 0;
+      }
+
+      const magnitude = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      const angle = Math.atan2(deltaY, deltaX);
+      const deltaS = magnitude * Math.sin(angle - Math.PI / 4) * speed;
+      const deltaE = magnitude * Math.cos(angle - Math.PI / 4) * speed;
+      if (deltaS === 0 && deltaE === 0) return;
+
+      const direction =
+        Math.abs(deltaS) > Math.abs(deltaE)
+          ? deltaS > 0
+            ? "south"
+            : "north"
+          : deltaE > 0
+            ? "east"
+            : "west";
+      this.character.direction = direction;
+
+      let newGlobalIsoCoordinates = this.character.globalIsoCoordinates.add(
+        new IsoCoordinates(deltaS, deltaE, 0)
+      );
+      const cellsBeneath = this.getCellsCharacterIsStandingOn(
+        newGlobalIsoCoordinates
+      );
+      const cellsOccupied = this.getCellsOccupiedByCharacter(
+        newGlobalIsoCoordinates
+      );
+      if (cellsOccupied.length > 0) {
+        newGlobalIsoCoordinates = newGlobalIsoCoordinates.move("up");
+      } else if (cellsBeneath.length === 0) {
+        newGlobalIsoCoordinates = newGlobalIsoCoordinates.move("down");
+      }
+      this.character.globalIsoCoordinates = newGlobalIsoCoordinates;
+      const newChunk = this.getOrCreateChunkAt(
+        this.character.globalIsoCoordinates
+      );
+      if (newChunk !== this.character.chunk) {
+        this.character.chunk.removeChild(this.character);
+        newChunk.addChild(this.character);
+        this.character.chunk = newChunk;
+      }
+      this.character.localIsoCoordinates = new LocalIsoCoordinates(
+        this.character.globalIsoCoordinates.s -
+          this.character.chunk.chunkIsoCoordinates.s * this.chunksSize,
+        this.character.globalIsoCoordinates.e -
+          this.character.chunk.chunkIsoCoordinates.e * this.chunksSize,
+        this.character.globalIsoCoordinates.u
+      );
+      this.character.chunk.positionCharacterAt(
+        this.character.localIsoCoordinates,
+        this.character
+      );
+    }
   }
 
   public destroy(options?: { children?: boolean; texture?: boolean }) {
