@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GlobalIsoCoordinates,
+  IsoBox,
   IsoCoordinates,
   LocalIsoCoordinates,
 } from "./IsometricCoordinate";
@@ -83,6 +84,45 @@ describe("IsoCoordinates", () => {
       expect(iso.equals(new IsoCoordinates(1, 2, 3))).toBe(true);
       expect(iso.equals(new IsoCoordinates(1, 2, 4))).toBe(false);
       expect(iso.equals(undefined)).toBe(false);
+    });
+  });
+});
+
+describe("IsoBox", () => {
+  const boxAt = (s: number) =>
+    IsoBox.fromOriginAndSize(
+      new IsoCoordinates(s, 0, 0),
+      new IsoCoordinates(0.9, 0.9, 1.9)
+    );
+
+  describe("cellRange", () => {
+    it("covers the single cell a box sits inside", () => {
+      expect(boxAt(3).cellRange("s")).toEqual([3, 3]);
+    });
+
+    it("covers both cells a box straddles", () => {
+      expect(boxAt(3.4).cellRange("s")).toEqual([3, 4]);
+      expect(boxAt(3.9).cellRange("s")).toEqual([3, 4]);
+    });
+
+    it("excludes the cell beyond a max landing exactly on a boundary", () => {
+      // a character flush against a wall at s=5 must not overlap the wall,
+      // otherwise it cannot move along it
+      expect(boxAt(4.1).cellRange("s")).toEqual([4, 4]);
+    });
+
+    it("handles negative coordinates", () => {
+      expect(boxAt(-0.5).cellRange("s")).toEqual([-1, 0]);
+      expect(boxAt(-0.9).cellRange("s")).toEqual([-1, -1]);
+    });
+
+    it("keeps the cell of a zero-width box", () => {
+      const point = new IsoCoordinates(4, 4, 4);
+      expect(new IsoBox(point, point).cellRange("u")).toEqual([4, 4]);
+    });
+
+    it("spans several cells on the tall axis", () => {
+      expect(boxAt(0).cellRange("u")).toEqual([0, 1]);
     });
   });
 });

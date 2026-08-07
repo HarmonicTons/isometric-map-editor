@@ -21,6 +21,19 @@ export type IsoDirection = (typeof isoDirections)[number];
 export const visibleIsoDirections = ["up", "east", "south"] as const;
 export type VisibleIsoDirection = (typeof visibleIsoDirections)[number];
 
+export const isoAxes = ["s", "e", "u"] as const;
+export type IsoAxis = (typeof isoAxes)[number];
+
+/** The direction one travels along an axis, by sign. */
+export const isoDirectionByAxis: Record<
+  IsoAxis,
+  { positive: IsoDirection; negative: IsoDirection }
+> = {
+  s: { positive: "south", negative: "north" },
+  e: { positive: "east", negative: "west" },
+  u: { positive: "up", negative: "down" },
+};
+
 /**
  * Represents isometric coordinates in a 3D space.
  */
@@ -92,6 +105,38 @@ export class IsoCoordinates {
       x: 16 * (this.e - this.s),
       y: 8 * (this.e + this.s) - 8 * this.u,
     };
+  }
+}
+
+/**
+ * An axis-aligned box in iso space, used as a hitbox.
+ *
+ * The box is half-open: it spans [min, max) on each axis.
+ */
+export class IsoBox {
+  constructor(
+    public readonly min: IsoCoordinates,
+    public readonly max: IsoCoordinates
+  ) {}
+
+  public static fromOriginAndSize(
+    origin: IsoCoordinates,
+    size: IsoCoordinates
+  ): IsoBox {
+    return new IsoBox(origin, origin.add(size));
+  }
+
+  /**
+   * Range of integer cells the box overlaps on one axis, both bounds included.
+   *
+   * Because the box is half-open, a box whose max falls exactly on a cell
+   * boundary does NOT overlap the cell beyond it: this is what lets a
+   * character standing flush against a wall still move along it.
+   */
+  public cellRange(axis: IsoAxis): [number, number] {
+    const min = Math.floor(this.min[axis]);
+    // a zero-width box still covers the cell it sits in
+    return [min, Math.max(min, Math.ceil(this.max[axis]) - 1)];
   }
 }
 

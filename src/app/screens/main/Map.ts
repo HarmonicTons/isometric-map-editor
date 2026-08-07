@@ -2,7 +2,12 @@ import { Container, Sprite, Texture, Ticker } from "pixi.js";
 import {
   ChunkIsoCoordinates,
   GlobalIsoCoordinates,
+  IsoAxis,
+  isoAxes,
+  IsoBox,
   IsoCoordinates,
+  IsoDirection,
+  isoDirectionByAxis,
   isoDirections,
   IsoString,
   LocalIsoCoordinates,
@@ -32,6 +37,13 @@ const shellTilesRelativeCoordinates = [
   new IsoCoordinates(0, 1, 1),
   new IsoCoordinates(1, 1, 1),
 ];
+
+/** Character hitbox, in cells */
+const CHARACTER_SIZE = new IsoCoordinates(0.9, 0.9, 1.9);
+/** Character walking speed, in cells per second */
+const CHARACTER_SPEED = 2;
+/** Fall speed, in cells per second */
+const GRAVITY = 5;
 
 /**
  * The map, as a collection of chunks.
@@ -162,6 +174,14 @@ export class Map extends Container {
   }
 
   public isCellOccupied(iso: GlobalIsoCoordinates): boolean {
+    return this.getCellContentAt(iso) !== undefined;
+  }
+
+  /**
+   * Whether a cell blocks movement. The single seam where "solid" is defined:
+   * for now anything in a cell blocks, tiles and objects alike.
+   */
+  private isSolidAt(iso: GlobalIsoCoordinates): boolean {
     return this.getCellContentAt(iso) !== undefined;
   }
 
@@ -458,53 +478,58 @@ export class Map extends Container {
   }
 
   /**
-   * Return the list of cells a character can be standing on
-   * ex: character is at (0, 0, 1), the cells beneath are (0, 0, 0)
-   * character is at (0.5, 0, 1), the cells beneath are (0, 0, 0) and (1, 0, 0)
-   * ex: character is at (0.5, 0.5, 1), the cells beneath are (0, 0, 0), (1, 0, 0), (0, 1, 0) and (1, 1, 0)
+   * First solid cell met by marching a box along a direction, or undefined if
+   * there is none within `searchDepth` cells.
+   *
+   * The scan starts at the box's leading face, so a cell the box already
+   * overlaps is never returned.
    */
-  public getCellsCharacterIsStandingOn(
-    iso: GlobalIsoCoordinates
-  ): Array<CellContent> {
-    const cells: Array<CellContent> = [];
-    const s0 = Math.floor(iso.s);
-    const s1 = Math.ceil(iso.s);
-    const e0 = Math.floor(iso.e);
-    const e1 = Math.ceil(iso.e);
-    const u = iso.u - 1;
-    for (const s of [s0, s1]) {
-      for (const e of [e0, e1]) {
-        const cell = this.getCellContentAt(new GlobalIsoCoordinates(s, e, u));
-        if (cell) {
-          cells.push(cell);
+  private firstSolidCellTowards(
+    box: IsoBox,
+    direction: IsoDirection,
+    searchDepth: number
+  ): GlobalIsoCoordinates | undefined {
+    const offset = IsoCoordinates.directionsOffsets[direction];
+    const axis: IsoAxis = offset.s !== 0 ? "s" : offset.e !== 0 ? "e" : "u";
+    const step = offset[axis];
+    const [crossA, crossB] = isoAxes.filter((candidate) => candidate !== axis);
+    const [aMin, aMax] = box.cellRange(crossA);
+    const [bMin, bMax] = box.cellRange(crossB);
+    const [lo, hi] = box.cellRange(axis);
+
+    let v = step > 0 ? hi : lo;
+    for (let depth = 0; depth < searchDepth; depth++) {
+      v += step;
+      for (let a = aMin; a <= aMax; a++) {
+        for (let b = bMin; b <= bMax; b++) {
+          const iso = new GlobalIsoCoordinates(0, 0, 0);
+          iso[axis] = v;
+          iso[crossA] = a;
+          iso[crossB] = b;
+          if (this.isSolidAt(iso)) return iso;
         }
       }
     }
-
-    return cells;
+    return undefined;
   }
 
-  public getCellsOccupiedByCharacter(
-    iso: GlobalIsoCoordinates
-  ): Array<CellContent> {
-    const cells: Array<CellContent> = [];
-    const s0 = Math.floor(iso.s);
-    const s1 = Math.ceil(iso.s);
-    const e0 = Math.floor(iso.e);
-    const e1 = Math.ceil(iso.e);
-    const u0 = iso.u;
-    for (const s of [s0, s1]) {
-      for (const e of [e0, e1]) {
-        for (const u of [u0, u0 + 1]) {
-          const cell = this.getCellContentAt(new GlobalIsoCoordinates(s, e, u));
-          if (cell) {
-            cells.push(cell);
-          }
-        }
-      }
-    }
-
-    return cells;
+  /**
+   * How far the box may actually travel along one axis, given the intended
+   * `delta`: the delta itself when nothing is in the way, or the exact
+   * distance to the obstacle. Never changes sign, so a box can never be
+   * pushed backwards.
+   */
+  private freeDistance(box: IsoBox, axis: IsoAxis, delta: number): number {
+    if (delta === 0) return 0;
+    const direction =
+      isoDirectionByAxis[axis][delta > 0 ? "positive" : "negative"];
+    // nothing beyond the reach of this move can block it
+    const searchDepth = Math.ceil(Math.abs(delta)) + 1;
+    const obstacle = this.firstSolidCellTowards(box, direction, searchDepth);
+    if (!obstacle) return delta;
+    return delta > 0
+      ? Math.min(delta, obstacle[axis] - box.max[axis])
+      : Math.max(delta, obstacle[axis] + 1 - box.min[axis]);
   }
 
   public addCharacterAt(globalIso: GlobalIsoCoordinates, type: CharacterType) {
@@ -521,40 +546,43 @@ export class Map extends Container {
     );
   }
 
-  public update(time: Ticker) {
-    if (this.hoveredEntity) {
-      const pulse = 0.5 + 0.5 * Math.sin((time.lastTime / 800) * Math.PI * 2);
-      this.cursorSprites[this.hoveredEntity.side].alpha = 0.3 + 0.7 * pulse;
+  private sampleInput() {
+    if (this.gamepadIndex === undefined) {
+      return {
+        leftStickX: 0,
+        leftStickY: 0,
+      };
     }
+    const gamepad = navigator.getGamepads()[this.gamepadIndex]!;
+    const [leftStickX, leftStickY] = gamepad.axes;
+    const deadzone = 0.15;
 
-    if (this.character) {
-      this.character.update(time);
+    return {
+      leftStickX: Math.abs(leftStickX) > deadzone ? leftStickX : 0,
+      leftStickY: Math.abs(leftStickY) > deadzone ? leftStickY : 0,
+    };
+  }
 
-      let deltaX = 0;
-      let deltaY = 0;
-      const speed = 2;
+  private simulate(
+    time: Ticker,
+    input: { leftStickX: number; leftStickY: number }
+  ) {
+    if (!this.character) {
+      return;
+    }
+    const seconds = time.deltaMS / 1000;
 
-      if (this.gamepadIndex !== undefined) {
-        const gamepad = navigator.getGamepads()[this.gamepadIndex]!;
-        const [leftStickX, leftStickY] = gamepad.axes; // stick gauche
-        const deadzone = 0.15;
-        deltaX =
-          Math.abs(leftStickX) > deadzone
-            ? leftStickX * (time.deltaMS / 1000)
-            : 0;
-        deltaY =
-          Math.abs(leftStickY) > deadzone
-            ? leftStickY * (time.deltaMS / 1000) * 2
-            : 0;
-      }
+    // The stick is read in screen space: un-squash y by the 2:1 iso ratio so
+    // that the resulting speed is uniform in screen pixels in any direction.
+    const deltaX = input.leftStickX * seconds;
+    const deltaY = input.leftStickY * seconds * 2;
+    const magnitude = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    const angle = Math.atan2(deltaY, deltaX);
+    const deltaS = magnitude * Math.sin(angle - Math.PI / 4) * CHARACTER_SPEED;
+    const deltaE = magnitude * Math.cos(angle - Math.PI / 4) * CHARACTER_SPEED;
 
-      const magnitude = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-      const angle = Math.atan2(deltaY, deltaX);
-      const deltaS = magnitude * Math.sin(angle - Math.PI / 4) * speed;
-      const deltaE = magnitude * Math.cos(angle - Math.PI / 4) * speed;
-      if (deltaS === 0 && deltaE === 0) return;
-
-      const direction =
+    if (deltaS !== 0 || deltaE !== 0) {
+      this.character.direction =
         Math.abs(deltaS) > Math.abs(deltaE)
           ? deltaS > 0
             ? "south"
@@ -562,43 +590,75 @@ export class Map extends Container {
           : deltaE > 0
             ? "east"
             : "west";
-      this.character.direction = direction;
-
-      let newGlobalIsoCoordinates = this.character.globalIsoCoordinates.add(
-        new IsoCoordinates(deltaS, deltaE, 0)
-      );
-      const cellsBeneath = this.getCellsCharacterIsStandingOn(
-        newGlobalIsoCoordinates
-      );
-      const cellsOccupied = this.getCellsOccupiedByCharacter(
-        newGlobalIsoCoordinates
-      );
-      if (cellsOccupied.length > 0) {
-        newGlobalIsoCoordinates = newGlobalIsoCoordinates.move("up");
-      } else if (cellsBeneath.length === 0) {
-        newGlobalIsoCoordinates = newGlobalIsoCoordinates.move("down");
-      }
-      this.character.globalIsoCoordinates = newGlobalIsoCoordinates;
-      const newChunk = this.getOrCreateChunkAt(
-        this.character.globalIsoCoordinates
-      );
-      if (newChunk !== this.character.chunk) {
-        this.character.chunk.removeChild(this.character);
-        newChunk.addChild(this.character);
-        this.character.chunk = newChunk;
-      }
-      this.character.localIsoCoordinates = new LocalIsoCoordinates(
-        this.character.globalIsoCoordinates.s -
-          this.character.chunk.chunkIsoCoordinates.s * this.chunksSize,
-        this.character.globalIsoCoordinates.e -
-          this.character.chunk.chunkIsoCoordinates.e * this.chunksSize,
-        this.character.globalIsoCoordinates.u
-      );
-      this.character.chunk.positionCharacterAt(
-        this.character.localIsoCoordinates,
-        this.character
-      );
     }
+
+    // Both axes are swept against the same starting box: this is what makes
+    // the character slide along a wall instead of sticking to it.
+    const walkBox = IsoBox.fromOriginAndSize(
+      this.character.globalIsoCoordinates,
+      CHARACTER_SIZE
+    );
+    const walked = this.character.globalIsoCoordinates.add(
+      new IsoCoordinates(
+        this.freeDistance(walkBox, "s", deltaS),
+        this.freeDistance(walkBox, "e", deltaE),
+        0
+      )
+    );
+
+    // Gravity is just one more sweep, on the u axis
+    const fallBox = IsoBox.fromOriginAndSize(walked, CHARACTER_SIZE);
+    this.character.globalIsoCoordinates = walked.add(
+      new IsoCoordinates(
+        0,
+        0,
+        this.freeDistance(fallBox, "u", -GRAVITY * seconds)
+      )
+    );
+  }
+
+  private syncView() {
+    if (!this.character) {
+      return;
+    }
+
+    const newChunk = this.getOrCreateChunkAt(
+      this.character.globalIsoCoordinates
+    );
+    if (newChunk !== this.character.chunk) {
+      this.character.chunk.removeChild(this.character);
+      newChunk.addChild(this.character);
+      this.character.chunk = newChunk;
+    }
+    this.character.localIsoCoordinates = new LocalIsoCoordinates(
+      this.character.globalIsoCoordinates.s -
+        this.character.chunk.chunkIsoCoordinates.s * this.chunksSize,
+      this.character.globalIsoCoordinates.e -
+        this.character.chunk.chunkIsoCoordinates.e * this.chunksSize,
+      this.character.globalIsoCoordinates.u
+    );
+    this.character.chunk.positionCharacterAt(
+      this.character.localIsoCoordinates,
+      this.character
+    );
+  }
+
+  private updateCosmetics(time: Ticker) {
+    if (this.hoveredEntity) {
+      const pulse = 0.5 + 0.5 * Math.sin((time.lastTime / 800) * Math.PI * 2);
+      this.cursorSprites[this.hoveredEntity.side].alpha = 0.3 + 0.7 * pulse;
+    }
+
+    if (this.character) {
+      this.character.update(time);
+    }
+  }
+
+  public update(time: Ticker) {
+    const input = this.sampleInput();
+    this.simulate(time, input);
+    this.syncView();
+    this.updateCosmetics(time);
   }
 
   public destroy(options?: { children?: boolean; texture?: boolean }) {
