@@ -99,6 +99,15 @@ export class IsoCoordinates {
   public paintersOrderKey(uMax: number) {
     return (this.s + this.e) * uMax + this.u;
   }
+ 
+  /**
+   * Painter's order key for mobile entities (character). 
+   * - drawn after the ground of the row in front;
+   * - drawn before everything else in that row above.
+   */
+  public billboardPaintersOrderKey(uMax: number) {
+    return (Math.floor(this.s + this.e) + 1) * uMax + this.u - 0.5;
+  }
 
   public toXY() {
     return {

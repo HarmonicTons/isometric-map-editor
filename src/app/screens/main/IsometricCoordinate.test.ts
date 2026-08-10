@@ -88,6 +88,40 @@ describe("IsoCoordinates", () => {
   });
 });
 
+describe("billboardPaintersOrderKey", () => {
+  const uMax = 256;
+  // a character standing at u=1 on flat ground, straddling cells 4 and 5
+  const character = new IsoCoordinates(4.1, 3.4, 1);
+  const key = character.billboardPaintersOrderKey(uMax);
+  const tile = (s: number, e: number, u: number) =>
+    new IsoCoordinates(s, e, u).paintersOrderKey(uMax);
+
+  it("draws after the ground of the row in front, which would clip its legs", () => {
+    expect(key).toBeGreaterThan(tile(5, 3, 0));
+    expect(key).toBeGreaterThan(tile(4, 4, 0));
+  });
+
+  it("draws after the ground it stands on", () => {
+    expect(key).toBeGreaterThan(tile(4, 3, 0));
+  });
+
+  it("draws before what stands in the row in front at its own height", () => {
+    expect(key).toBeLessThan(tile(5, 3, 1));
+    expect(key).toBeLessThan(tile(4, 4, 1));
+  });
+
+  it("never ties with a tile", () => {
+    for (let s = 4; s < 5; s += 0.1) {
+      for (let u = 0; u <= 3; u++) {
+        const billboard = new IsoCoordinates(s, 3, 1).billboardPaintersOrderKey(
+          uMax
+        );
+        expect(billboard).not.toBe(tile(Math.round(s), 3, u));
+      }
+    }
+  });
+});
+
 describe("IsoBox", () => {
   const boxAt = (s: number) =>
     IsoBox.fromOriginAndSize(

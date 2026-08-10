@@ -268,11 +268,7 @@ export class MapChunk extends Container {
     const xy = iso.toXY();
     character.x = xy.x + 16;
     character.y = xy.y + 24;
-    character.zIndex = new LocalIsoCoordinates(
-      Math.ceil(iso.s),
-      Math.ceil(iso.e),
-      iso.u
-    ).paintersOrderKey(MAP_MAX_HEIGHT);
+    character.zIndex = iso.billboardPaintersOrderKey(MAP_MAX_HEIGHT);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
