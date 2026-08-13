@@ -10,6 +10,9 @@ import type { TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 import { debugViewEnabled, listenForDebugViewToggle } from "./DebugView";
 
+/** How long the frame rate is averaged over before it is shown, in ms */
+const FPS_WINDOW = 500;
+
 export type CursorAction =
   | {
       entityType: "tile";
@@ -35,8 +38,11 @@ export class GameScreen extends Container {
   public mapContainer: Viewport;
   private paused = false;
   private map?: Map;
-  /** DEBUG readout, see syncVelocityReadout */
-  private velocityReadout: Text;
+  /** DEBUG readout, see syncDebugReadout */
+  private debugReadout: Text;
+  private fps = 0;
+  private frames = 0;
+  private sinceFpsUpdate = 0;
   public tileFragmentsTextures: TileFragmentsTextures;
   public cursorAction: CursorAction;
 
@@ -134,7 +140,7 @@ export class GameScreen extends Container {
     // A child of the screen, not of the viewport: that is what keeps it still
     // while the map pans and zooms under it. Top right, the control bar has
     // the left edge.
-    this.velocityReadout = new Text({
+    this.debugReadout = new Text({
       text: "",
       style: {
         fontFamily: "monospace",
@@ -144,37 +150,54 @@ export class GameScreen extends Container {
         stroke: { color: 0x000000, width: 3 },
       },
     });
-    this.velocityReadout.anchor.set(1, 0);
-    this.velocityReadout.visible = false;
-    this.addChild(this.velocityReadout);
-    this.placeVelocityReadout(engine().screen.width);
+    this.debugReadout.anchor.set(1, 0);
+    this.debugReadout.visible = false;
+    this.addChild(this.debugReadout);
+    this.placeDebugReadout(engine().screen.width);
   }
 
-  private placeVelocityReadout(width: number) {
-    this.velocityReadout.x = width - 12;
-    this.velocityReadout.y = 12;
+  private placeDebugReadout(width: number) {
+    this.debugReadout.x = width - 12;
+    this.debugReadout.y = 12;
   }
 
   /**
-   * DEBUG — how fast the character is actually moving, in cells per second,
-   * pinned to the corner rather than to the character so that it stays
-   * readable while it moves. Toggled with F10, see DebugView.
+   * Frames per second, averaged over the last window rather than taken from
+   * the last frame: an instant reading swings by twenty between two frames and
+   * cannot be read at all. Counted whether or not the overlay is on, so that
+   * the number is already right when it appears.
    */
-  private syncVelocityReadout() {
-    const character = this.map?.character;
-    this.velocityReadout.visible =
-      debugViewEnabled() && character !== undefined;
-    if (!this.velocityReadout.visible) return;
-    const { s, e, u } = this.map!.characterVelocity;
-    // the ground speed last, on its own: it is the one that should not change
-    // with the direction, and the one that paces the walk cycle
-    const text = [
-      `s ${s.toFixed(2)}`,
-      `e ${e.toFixed(2)}`,
-      `u ${u.toFixed(2)}`,
-      `${Math.hypot(s, e).toFixed(2)} cells/s`,
-    ].join("\n");
-    if (this.velocityReadout.text !== text) this.velocityReadout.text = text;
+  private countFrame(time: Ticker) {
+    this.frames++;
+    this.sinceFpsUpdate += time.deltaMS;
+    if (this.sinceFpsUpdate < FPS_WINDOW) return;
+    this.fps = (this.frames * 1000) / this.sinceFpsUpdate;
+    this.frames = 0;
+    this.sinceFpsUpdate = 0;
+  }
+
+  /**
+   * DEBUG — the frame rate, and how fast the character is actually moving in
+   * cells per second. Pinned to the corner rather than to the character so
+   * that it stays readable while it moves. Toggled with F10, see DebugView.
+   */
+  private syncDebugReadout() {
+    this.debugReadout.visible = debugViewEnabled();
+    if (!this.debugReadout.visible) return;
+    const lines = [`${Math.round(this.fps)} fps`];
+    if (this.map?.character) {
+      const { s, e, u } = this.map.characterVelocity;
+      // the ground speed last, on its own: it is the one that should not
+      // change with the direction, and the one that paces the walk cycle
+      lines.push(
+        `s ${s.toFixed(2)}`,
+        `e ${e.toFixed(2)}`,
+        `u ${u.toFixed(2)}`,
+        `${Math.hypot(s, e).toFixed(2)} cells/s`
+      );
+    }
+    const text = lines.join("\n");
+    if (this.debugReadout.text !== text) this.debugReadout.text = text;
   }
 
   public extractToPng = async () => {
@@ -207,8 +230,9 @@ export class GameScreen extends Container {
   /** Update the screen */
 
   public update(time: Ticker) {
+    this.countFrame(time);
     if (!this.paused && this.map) this.map.update(time);
-    this.syncVelocityReadout();
+    this.syncDebugReadout();
   }
 
   /** Pause gameplay - automatically fired when a popup is presented */
@@ -231,7 +255,7 @@ export class GameScreen extends Container {
     this.background.resize(width, height);
     this.mapContainer.resize(width, height);
     this.controlBar.resize(width, height);
-    this.placeVelocityReadout(width);
+    this.placeDebugReadout(width);
   }
 
   /** Show screen with animations */

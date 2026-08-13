@@ -55,6 +55,14 @@ export class MapChunk extends Container {
     super();
     this.eventMode = "none";
     this.sortableChildren = true;
+    // Pixi caches the draw instructions of a render group and only rebuilds
+    // them when its structure changes — a zIndex, a visibility, a child added.
+    // Without a boundary the whole map is one group, so moving the character
+    // one pixel rebuilds every cell of it: measured at 170 000 display objects
+    // on a 128×128×16 map, which is what a 140 → 30 fps drop looks like. A
+    // chunk is already atomic in the draw order, so drawing it as its own pass
+    // costs nothing and contains the rebuild to what actually moved.
+    this.isRenderGroup = true;
     // Tiles are loaded as bare data: materialization of the shell happens in
     // the map-wide pass, once every chunk's data is available
     for (const key of Object.keys(chunkTileData) as IsoString[]) {
