@@ -29,22 +29,75 @@ describe("IsoCoordinates", () => {
   });
 
   describe("paintersOrderKey", () => {
-    const uMax = 256;
+    /**
+     * Which of two cells hides the other, by the interval test along the view
+     * ray (1, 1, 2): the second is reached from the first for t in [from, to).
+     * Distinct unit cells are disjoint, so this is never ambiguous.
+     */
+    const occlusion = (ds: number, de: number, du: number) => {
+      const from = Math.max(ds - 1, de - 1, (du - 1) / 2);
+      const to = Math.min(ds + 1, de + 1, (du + 1) / 2);
+      if (from >= to) return "unrelated";
+      return from >= 0 ? "front" : "behind";
+    };
 
-    it("orders by diagonal (s+e) first", () => {
-      const back = new IsoCoordinates(0, 0, 255);
-      const front = new IsoCoordinates(1, 0, 0);
-      expect(front.paintersOrderKey(uMax)).toBeGreaterThan(
-        back.paintersOrderKey(uMax)
-      );
+    it("would work with any positive weight on height", () => {
+      // The key is DIAGONAL * (s + e) + HEIGHT * u, and the ratio of the two
+      // is FREE: whenever a cell hides another, it has at least as high a
+      // diagonal AND at least as high a u, so any positive pair orders them
+      // right. It is not free in practice — the character has to fit a key
+      // between the cells around it, and how much room that leaves depends on
+      // the ratio — but no correctness argument pins it down.
+      let ordered = 0;
+      for (let ds = -6; ds <= 6; ds++) {
+        for (let de = -6; de <= 6; de++) {
+          for (let du = -12; du <= 12; du++) {
+            if (occlusion(ds, de, du) !== "front") continue;
+            ordered++;
+            expect(ds + de).toBeGreaterThanOrEqual(0);
+            expect(du).toBeGreaterThanOrEqual(0);
+            expect(ds + de + du).toBeGreaterThan(0);
+          }
+        }
+      }
+      expect(ordered).toBeGreaterThan(50);
+    });
+
+    it("gives the higher key to whichever cell hides the other", () => {
+      for (let ds = -6; ds <= 6; ds++) {
+        for (let de = -6; de <= 6; de++) {
+          for (let du = -12; du <= 12; du++) {
+            if (occlusion(ds, de, du) !== "front") continue;
+            const behind = new GlobalIsoCoordinates(8, 8, 8);
+            const front = behind.add(new IsoCoordinates(ds, de, du));
+            expect(front.paintersOrderKey()).toBeGreaterThan(
+              behind.paintersOrderKey()
+            );
+          }
+        }
+      }
     });
 
     it("orders by height within the same diagonal", () => {
-      const low = new IsoCoordinates(2, 3, 1);
-      const high = new IsoCoordinates(3, 2, 2);
-      expect(high.paintersOrderKey(uMax)).toBeGreaterThan(
-        low.paintersOrderKey(uMax)
-      );
+      const low = new GlobalIsoCoordinates(2, 3, 1);
+      const high = new GlobalIsoCoordinates(3, 2, 2);
+      expect(high.paintersOrderKey()).toBeGreaterThan(low.paintersOrderKey());
+    });
+
+    it("stays a whole number", () => {
+      // the character takes a key strictly between two cells by adding a half,
+      // which only never ties if cell keys are integers
+      expect(new GlobalIsoCoordinates(3, 15, 9).paintersOrderKey() % 1).toBe(0);
+    });
+
+    it("is counted from the map origin, not from any chunk", () => {
+      // The live block draws the cells of four chunks and the bands of a
+      // character in one container, so every key that meets there must share
+      // one origin. Keying a cell on its chunk-local coordinates once made
+      // characters draw over the tiles in front of them.
+      const here = new GlobalIsoCoordinates(3, 15, 9);
+      const shifted = new GlobalIsoCoordinates(3 + 8, 15 + 8, 9);
+      expect(shifted.paintersOrderKey()).not.toBe(here.paintersOrderKey());
     });
   });
 
@@ -88,46 +141,44 @@ describe("IsoCoordinates", () => {
   });
 });
 
-describe("billboardPaintersOrderKey", () => {
-  const uMax = 256;
-  // a character standing at u=1 on flat ground, straddling cells 4 and 5
-  const character = new IsoCoordinates(4.1, 3.4, 1);
-  const key = character.billboardPaintersOrderKey(uMax);
-  const tile = (s: number, e: number, u: number) =>
-    new IsoCoordinates(s, e, u).paintersOrderKey(uMax);
-
-  it("draws after the ground of the row in front, which would clip its legs", () => {
-    expect(key).toBeGreaterThan(tile(5, 3, 0));
-    expect(key).toBeGreaterThan(tile(4, 4, 0));
-  });
-
-  it("draws after the ground it stands on", () => {
-    expect(key).toBeGreaterThan(tile(4, 3, 0));
-  });
-
-  it("draws before what stands in the row in front at its own height", () => {
-    expect(key).toBeLessThan(tile(5, 3, 1));
-    expect(key).toBeLessThan(tile(4, 4, 1));
-  });
-
-  it("never ties with a tile", () => {
-    for (let s = 4; s < 5; s += 0.1) {
-      for (let u = 0; u <= 3; u++) {
-        const billboard = new IsoCoordinates(s, 3, 1).billboardPaintersOrderKey(
-          uMax
-        );
-        expect(billboard).not.toBe(tile(Math.round(s), 3, u));
-      }
-    }
-  });
-});
-
 describe("IsoBox", () => {
   const boxAt = (s: number) =>
-    IsoBox.fromOriginAndSize(
+    new IsoBox(
       new IsoCoordinates(s, 0, 0),
-      new IsoCoordinates(0.9, 0.9, 1.9)
+      new IsoCoordinates(s + 0.9, 0.9, 1.9)
     );
+
+  describe("standingOn", () => {
+    const size = (v: number) => new IsoCoordinates(v, v, 1);
+    const cell = new GlobalIsoCoordinates(3, 5, 2);
+
+    it("shares the slack between both sides of the cell", () => {
+      // otherwise an entity narrower than a cell walks into a wall coming
+      // from the north but pushes into it coming from the south
+      for (const width of [0.1, 0.5, 0.8, 1]) {
+        const box = IsoBox.standingOn(cell, size(width));
+        expect(box.min.s - cell.s).toBeCloseTo(cell.s + 1 - box.max.s);
+        expect(box.min.e - cell.e).toBeCloseTo(cell.e + 1 - box.max.e);
+      }
+    });
+
+    it("keeps its feet on the floor of the cell", () => {
+      const box = IsoBox.standingOn(cell, size(0.1));
+      expect(box.min.u).toBe(cell.u);
+      expect(box.max.u).toBe(cell.u + 1);
+    });
+
+    it("fills the cell exactly at full size", () => {
+      const box = IsoBox.standingOn(cell, new IsoCoordinates(1, 1, 1));
+      expect(box.min).toEqual(cell);
+      expect(box.max).toEqual(new GlobalIsoCoordinates(4, 6, 3));
+    });
+
+    it("preserves the coordinate brand", () => {
+      const box = IsoBox.standingOn(cell, size(0.5));
+      expect(box.min).toBeInstanceOf(GlobalIsoCoordinates);
+    });
+  });
 
   describe("cellRange", () => {
     it("covers the single cell a box sits inside", () => {
@@ -143,6 +194,21 @@ describe("IsoBox", () => {
       // a character flush against a wall at s=5 must not overlap the wall,
       // otherwise it cannot move along it
       expect(boxAt(4.1).cellRange("s")).toEqual([4, 4]);
+    });
+
+    it("ignores the error of adding fractions together", () => {
+      // standingOn adds the slack then the size, so a face that should land on
+      // a whole number lands a few 1e-16 past it. Without a tolerance the same
+      // entity occupies a different number of cells depending on where it
+      // stands, which changes its collisions and the way its sprite is cut.
+      const hitbox = new IsoCoordinates(0.8, 0.8, 1.9);
+      for (const cell of [11, 12, 16, 40, 137, -9]) {
+        const box = IsoBox.standingOn(
+          new GlobalIsoCoordinates(cell + 0.1, cell + 0.2, 4),
+          hitbox
+        );
+        expect(box.cellRange("s")).toEqual([cell, cell]);
+      }
     });
 
     it("handles negative coordinates", () => {

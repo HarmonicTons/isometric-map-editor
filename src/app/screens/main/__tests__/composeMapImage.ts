@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import {
   Assets,
   Container,
+  Mesh,
+  MeshGeometry,
   Rectangle,
   Sprite,
   Texture,
@@ -90,11 +92,61 @@ type Blit = {
 };
 
 /**
+ * The quads of a character piece, read back from its mesh.
+ *
+ * Character.fillGeometry writes four vertices per quad — top-left, top-right,
+ * bottom-right, bottom-left — with the matching corners of the animation frame
+ * as UVs. Nothing else is supported: a quad that is not axis-aligned, or whose
+ * UVs do not match its shape, throws rather than rasterize into something the
+ * GPU would not draw.
+ */
+const meshQuads = (geometry: MeshGeometry, frame: Rectangle) => {
+  const { positions, uvs } = geometry;
+  if (positions.length % 8 !== 0) {
+    throw new Error("Rasterizer only supports meshes built as quads");
+  }
+  const quads: {
+    sx: number;
+    sy: number;
+    w: number;
+    h: number;
+    dx: number;
+    dy: number;
+  }[] = [];
+  for (let quad = 0; quad < positions.length; quad += 8) {
+    const left = positions[quad];
+    const top = positions[quad + 1];
+    const right = positions[quad + 2];
+    const bottom = positions[quad + 5];
+    if (
+      positions[quad + 3] !== top ||
+      positions[quad + 4] !== right ||
+      positions[quad + 6] !== left ||
+      positions[quad + 7] !== bottom
+    ) {
+      throw new Error("Rasterizer only supports axis-aligned quads");
+    }
+    // UVs are fractions of the frame, so multiplying back lands a hair off a
+    // whole texel. Rounding is not cosmetic here: a fractional index into the
+    // sheet reads undefined, which used to blit holes into the character.
+    const sx = Math.round(frame.x + uvs[quad] * frame.width);
+    const sy = Math.round(frame.y + uvs[quad + 1] * frame.height);
+    const sw = Math.round(frame.x + uvs[quad + 2] * frame.width) - sx;
+    const sh = Math.round(frame.y + uvs[quad + 5] * frame.height) - sy;
+    if (sw !== right - left || sh !== bottom - top) {
+      throw new Error("Rasterizer only supports meshes drawn at 1:1");
+    }
+    quads.push({ sx, sy, w: right - left, h: bottom - top, dx: left, dy: top });
+  }
+  return quads;
+};
+
+/**
  * Walk the scene graph in Pixi's render order: a container renders itself,
  * then its children (sorted by zIndex when sortableChildren, stable on ties).
- * Only plain translated sprites are supported: anything else (scale,
- * rotation, tint, alpha) throws so a rendering feature the rasterizer cannot
- * reproduce can never be silently dropped from the snapshots.
+ * Only plain translated sprites and quad meshes are supported: anything else
+ * (scale, rotation, tint, alpha) throws so a rendering feature the rasterizer
+ * cannot reproduce can never be silently dropped from the snapshots.
  */
 const collectBlits = (
   node: Container,
@@ -109,7 +161,26 @@ const collectBlits = (
   }
   const x = parentX + node.x;
   const y = parentY + node.y;
-  if (node instanceof Sprite) {
+  if (node instanceof Mesh) {
+    if (node.tint !== 0xffffff || node.alpha !== 1) {
+      throw new Error("Rasterizer does not support tint nor alpha");
+    }
+    const sheet = sheetBySource.get(node.texture.source);
+    if (!sheet) {
+      throw new Error(`Unknown texture source for "${node.texture.label}"`);
+    }
+    for (const quad of meshQuads(node.geometry, node.texture.frame)) {
+      out.push({
+        sheet,
+        sx: quad.sx,
+        sy: quad.sy,
+        w: quad.w,
+        h: quad.h,
+        dx: Math.round(x + quad.dx),
+        dy: Math.round(y + quad.dy),
+      });
+    }
+  } else if (node instanceof Sprite) {
     if (node.tint !== 0xffffff || node.alpha !== 1) {
       throw new Error("Rasterizer does not support tint nor alpha");
     }
@@ -124,8 +195,12 @@ const collectBlits = (
       sy: frame.y,
       w: frame.width,
       h: frame.height,
-      dx: x - node.anchor.x * frame.width,
-      dy: y - node.anchor.y * frame.height,
+      // A no-op today: every sprite sits on a whole pixel. Kept so that a
+      // sprite placed between two pixels lands
+      // somewhere sane instead of corrupting the buffer, but a snapshot taken
+      // through it would then be off by up to a pixel from the GPU.
+      dx: Math.round(x - node.anchor.x * frame.width),
+      dy: Math.round(y - node.anchor.y * frame.height),
     });
   }
   if (node.sortableChildren) {
@@ -136,12 +211,31 @@ const collectBlits = (
   }
 };
 
-export const composeMapImage = (mapData: MapData): PNG => {
-  const { sheetBySource, textureNames } = loadAssets();
-  const map = new IsometricMap(
+/**
+ * A real Map, built headless. Pixi runs fine in Node as long as nothing is
+ * rendered, so tests can exercise the actual chunking, painter's order and
+ * character slicing rather than a stand-in. The caller owns it and must
+ * destroy it.
+ */
+export const buildHeadlessMap = (
+  mapData: MapData,
+  chunksSize?: number
+): IsometricMap =>
+  new IsometricMap(
     mapData,
-    new TileFragmentsTextures(textureNames)
+    new TileFragmentsTextures(loadAssets().textureNames),
+    chunksSize
   );
+
+export const composeMapImage = (
+  mapData: MapData,
+  /** test hook: mutate the built map before it is rasterized */
+  mangle?: (map: IsometricMap) => void,
+  chunksSize?: number
+): PNG => {
+  const { sheetBySource } = loadAssets();
+  const map = buildHeadlessMap(mapData, chunksSize);
+  mangle?.(map);
   const blits: Blit[] = [];
   collectBlits(map, 0, 0, sheetBySource, blits);
   map.destroy({ children: true });

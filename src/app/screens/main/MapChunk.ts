@@ -1,4 +1,4 @@
-import { Container, DestroyOptions, Sprite, Ticker } from "pixi.js";
+import { Container, DestroyOptions, Sprite } from "pixi.js";
 import {
   ChunkIsoCoordinates,
   GlobalIsoCoordinates,
@@ -9,7 +9,6 @@ import {
 import { MapObject, MapObjectType } from "./MapObject";
 import { Tile, TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
-import { Character } from "./Character";
 
 export type ChunkTileData = Record<IsoString, TileType>;
 
@@ -26,9 +25,23 @@ export type CellContent = TileType | Tile | MapObject;
  *
  * A chunk only knows its own local domain.
  * Anything that may cross a chunk boundary must go through Map
+ *
+ * It is also the container its cells are drawn in — which is what makes a
+ * chunk atomic in the draw order, and one day bakeable into a single texture.
+ * Not always, though: while it is part of the live block around a character it
+ * lends its views to it, so that they can interleave with the character's own.
+ * See Map.syncBlock.
  */
 export class MapChunk extends Container {
   public cells: Record<IsoString, CellContent> = {};
+
+  /** Container the views below are drawn in: this chunk, or the live block. */
+  private viewHost: Container = this;
+  /**
+   * Every view this chunk put in its host. Not `children`, because the host is
+   * not always this chunk: this is what it can hand over and take back.
+   */
+  private readonly views = new Set<Container>();
 
   constructor(
     public size: number,
@@ -63,6 +76,36 @@ export class MapChunk extends Container {
     return Object.keys(this.cells).length === 0;
   }
 
+  /** Whether it still draws anything, wherever its views currently live. */
+  public get hasViews(): boolean {
+    return this.views.size > 0;
+  }
+
+  private attach(view: Container) {
+    this.views.add(view);
+    this.viewHost.addChild(view);
+  }
+
+  private release(view: Container) {
+    this.views.delete(view);
+    view.parent?.removeChild(view);
+  }
+
+  /**
+   * Draw this chunk's cells inside `host` instead of inside itself, so that
+   * they take their place in a wider draw order. Pixi reparents on addChild,
+   * so this is the whole of it.
+   */
+  public lendViewsTo(host: Container) {
+    if (host === this.viewHost) return;
+    this.viewHost = host;
+    for (const view of this.views) host.addChild(view);
+  }
+
+  public takeViewsBack() {
+    this.lendViewsTo(this);
+  }
+
   private assertInside(iso: LocalIsoCoordinates) {
     // Chunks are vertical columns: s/e are chunk-local, u is global
     const inside =
@@ -94,23 +137,6 @@ export class MapChunk extends Container {
     return this.cells[iso.toString()];
   }
 
-  public isCellOccupied(iso: LocalIsoCoordinates): boolean {
-    return this.getCellAt(iso) !== undefined;
-  }
-
-  public getTileTypeAt(iso: LocalIsoCoordinates): TileType | undefined {
-    const cell = this.getCellAt(iso);
-    if (typeof cell === "string") return cell;
-    return cell instanceof Tile ? cell.type : undefined;
-  }
-
-  public getDisplayedEntityAt(
-    iso: LocalIsoCoordinates
-  ): Tile | MapObject | undefined {
-    const cell = this.getCellAt(iso);
-    return typeof cell === "string" ? undefined : cell;
-  }
-
   public createTile(
     iso: LocalIsoCoordinates,
     type: TileType,
@@ -127,10 +153,13 @@ export class MapChunk extends Container {
       chunk: this,
       skipFragmentsSetup,
     });
-    const xy = iso.toXY();
+    // Views are placed in map pixels, never relative to the chunk: a chunk is
+    // a grouping in the draw order, not a coordinate frame, and its views move
+    // between it and the live block without ever changing position.
+    const xy = globalIso.toXY();
     tile.x = xy.x;
     tile.y = xy.y;
-    tile.zIndex = iso.paintersOrderKey(MAP_MAX_HEIGHT);
+    tile.zIndex = globalIso.paintersOrderKey();
     this.cells[iso.toString()] = tile;
     if (!skipFragmentsSetup) {
       this.syncTileAttachment(tile);
@@ -160,6 +189,7 @@ export class MapChunk extends Container {
       );
     }
     this.cells[key] = tile.type;
+    this.release(tile);
     tile.destroy({ children: true });
   }
 
@@ -175,11 +205,11 @@ export class MapChunk extends Container {
       globalIsoCoordinates: globalIso,
       chunk: this,
     });
-    const xy = iso.toXY();
+    const xy = globalIso.toXY();
     mapObject.x = xy.x + 16;
     mapObject.y = xy.y + 24;
-    mapObject.zIndex = iso.paintersOrderKey(MAP_MAX_HEIGHT);
-    this.addChild(mapObject);
+    mapObject.zIndex = globalIso.paintersOrderKey();
+    this.attach(mapObject);
     for (let i = 0; i < mapObject.objectHeight; i++) {
       const cellIso = new LocalIsoCoordinates(iso.s, iso.e, iso.u + i);
       this.assertInside(cellIso);
@@ -204,6 +234,7 @@ export class MapChunk extends Container {
     } else {
       delete this.cells[iso.toString()];
     }
+    this.release(cell);
     cell.destroy({ children: true });
   }
 
@@ -218,9 +249,9 @@ export class MapChunk extends Container {
 
   private syncTileAttachment(tile: Tile) {
     if (tile.hasVisibleFragments && !tile.parent) {
-      this.addChild(tile);
+      this.attach(tile);
     } else if (!tile.hasVisibleFragments && tile.parent) {
-      this.removeChild(tile);
+      this.release(tile);
     }
   }
 
@@ -241,6 +272,9 @@ export class MapChunk extends Container {
   }
 
   public override destroy(options?: DestroyOptions) {
+    // Views lent to the live block would outlive it otherwise
+    this.takeViewsBack();
+    this.views.clear();
     for (const key of Object.keys(this.cells) as IsoString[]) {
       const cell = this.cells[key];
       if (cell instanceof Tile && !cell.parent) {
@@ -251,26 +285,15 @@ export class MapChunk extends Container {
     super.destroy(options);
   }
 
-  public addCursorSpriteAt(iso: LocalIsoCoordinates, sprite: Sprite) {
-    const xy = iso.toXY();
+  public addCursorSpriteAt(globalIso: GlobalIsoCoordinates, sprite: Sprite) {
+    const xy = globalIso.toXY();
     sprite.x = xy.x;
     sprite.y = xy.y;
-    sprite.zIndex = iso.paintersOrderKey(MAP_MAX_HEIGHT);
-    this.addChild(sprite);
+    sprite.zIndex = globalIso.paintersOrderKey();
+    this.attach(sprite);
   }
 
-  public addCharacterAt(iso: LocalIsoCoordinates, character: Character) {
-    this.positionCharacterAt(iso, character);
-    this.addChild(character);
+  public removeCursorSprite(sprite: Sprite) {
+    this.release(sprite);
   }
-
-  public positionCharacterAt(iso: LocalIsoCoordinates, character: Character) {
-    const xy = iso.toXY();
-    character.x = xy.x + 16;
-    character.y = xy.y + 24;
-    character.zIndex = iso.billboardPaintersOrderKey(MAP_MAX_HEIGHT);
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  public update(_time: Ticker) {}
 }

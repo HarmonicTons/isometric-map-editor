@@ -8,6 +8,7 @@ import { Map, MapData } from "./Map";
 import type { MapObjectType } from "./MapObject";
 import type { TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
+import { listenForDebugViewToggle } from "./DebugView";
 
 export type CursorAction =
   | {
@@ -93,6 +94,8 @@ export class GameScreen extends Container {
       if (!this.map) return;
       this.map.gamepadIndex = e.gamepad.index;
     });
+
+    listenForDebugViewToggle();
 
     // TODO: use another system to register the textures instead of using Pixi's cache
     // @ts-expect-error hack to access private property

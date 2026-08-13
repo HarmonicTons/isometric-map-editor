@@ -1,4 +1,4 @@
-import { Container, Sprite, Texture, Ticker } from "pixi.js";
+import { Container, Sprite, Text, Texture, Ticker } from "pixi.js";
 import {
   ChunkIsoCoordinates,
   GlobalIsoCoordinates,
@@ -19,6 +19,8 @@ import { MapObject, MapObjectType } from "./MapObject";
 import { Tile, TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 import { Character, CharacterType } from "./Character";
+import { sliceEntity } from "./EntityBands";
+import { debugViewEnabled } from "./DebugView";
 
 export type MapData = {
   objects: Record<string, string>;
@@ -38,12 +40,31 @@ const shellTilesRelativeCoordinates = [
   new IsoCoordinates(1, 1, 1),
 ];
 
-/** Character hitbox, in cells */
-const CHARACTER_SIZE = new IsoCoordinates(0.9, 0.9, 1.9);
 /** Character walking speed, in cells per second */
 const CHARACTER_SPEED = 2;
 /** Fall speed, in cells per second */
 const GRAVITY = 5;
+
+/**
+ * Side of the live block, in chunks — the square of chunks around the
+ * character that is drawn as a single container. See Map.syncBlock.
+ *
+ * Square, and it has to be. A rectangle of chunks [s0..s1] × [e0..e1] can be
+ * given one rank in the map's draw order only if every chunk outside it that
+ * overlaps it on screen sorts the same way against all of the block chunks it
+ * overlaps. Two chunks can only overlap when they are within one of each other
+ * on both axes, and working out what that leaves gives
+ *
+ *     max(s0 + e1, s1 + e0) − 1  <  rank  <  min(s0 + e1, s1 + e0) + 1
+ *
+ * which has a solution only when s0 + e1 = s1 + e0, i.e. when the block is
+ * square, and then the rank is that middle diagonal.
+ *
+ * Two chunks means the character is never closer than half a chunk to the
+ * block's edge, against the two cells a constraining cell is ever away from it
+ * (EntityBands.test.ts, "no cell further than two cells away constrains it").
+ */
+const BLOCK_SIDE = 2;
 
 /**
  * The map, as a collection of chunks.
@@ -74,11 +95,27 @@ export class Map extends Container {
   public character: Character | undefined;
   public gamepadIndex: number | undefined;
 
+  /** The square of chunks around the character, drawn as one. See syncBlock. */
+  private block?: { container: Container; origin: ChunkIsoCoordinates };
+
+  /** DEBUG overlay, see syncDepthKeys */
+  private depthKeyOverlay?: Container;
+  private depthKeyLabels: Text[] = [];
+
   constructor(
     mapData: MapData,
-    public tileFragmentsTextures: TileFragmentsTextures
+    public tileFragmentsTextures: TileFragmentsTextures,
+    /**
+     * Side of a chunk, in cells. Only tests ever change it: a single huge
+     * chunk is the exact draw order the chunked one has to reproduce, and a
+     * small one puts a boundary everywhere. Half of it is how far the
+     * character is from the edge of its block, so it may not go below twice
+     * the reach of a constraining cell.
+     */
+    chunksSize = 8
   ) {
     super();
+    this.chunksSize = chunksSize;
     // Pointer events are handled by GameScreen
     this.eventMode = "none";
     this.sortableChildren = true;
@@ -142,8 +179,8 @@ export class Map extends Container {
   private toChunkIso(iso: GlobalIsoCoordinates): ChunkIsoCoordinates {
     const size = this.chunksSize;
     return new ChunkIsoCoordinates(
-      Math.floor(Math.ceil(iso.s) / size),
-      Math.floor(Math.ceil(iso.e) / size),
+      Math.floor(iso.s / size),
+      Math.floor(iso.e / size),
       0
     );
   }
@@ -165,7 +202,11 @@ export class Map extends Container {
   }
 
   private getOrCreateChunkAt(iso: GlobalIsoCoordinates): MapChunk {
-    return this.getChunkAt(iso) ?? this.createChunk(this.toChunkIso(iso), {});
+    return this.getOrCreateChunk(this.toChunkIso(iso));
+  }
+
+  private getOrCreateChunk(chunkIso: ChunkIsoCoordinates): MapChunk {
+    return this.chunks[chunkIso.toString()] ?? this.createChunk(chunkIso, {});
   }
 
   private getCellContentAt(iso: GlobalIsoCoordinates): CellContent | undefined {
@@ -257,12 +298,18 @@ export class Map extends Container {
 
   private clearHoveredEntity(entity: Tile | MapObject) {
     if (this.hoveredEntity?.entity !== entity) return;
-    entity.chunk.removeChild(this.cursorSprites[this.hoveredEntity.side]);
+    entity.chunk.removeCursorSprite(
+      this.cursorSprites[this.hoveredEntity.side]
+    );
     this.hoveredEntity = undefined;
   }
 
   private destroyChunkIfEmpty(chunk: MapChunk) {
     if (!chunk.isEmpty) return;
+    // A chunk with no cell left may still draw a sprite it does not own: the
+    // cursor. Its views may be lent to the live block, so `children` is not
+    // the question to ask.
+    if (chunk.hasViews) return;
     console.debug(
       `Destroying empty chunk at ${chunk.chunkIsoCoordinates.toString()}`
     );
@@ -327,13 +374,14 @@ export class Map extends Container {
       (iso) => this.getTileTypeAt(iso),
       chunkIso
     );
-    const xy = chunkIso.toXY();
-    chunk.x = xy.x * this.chunksSize;
-    chunk.y = xy.y * this.chunksSize;
     // Columns have no u dimension: depth order between chunks is their diagonal
     chunk.zIndex = chunkIso.s + chunkIso.e;
     this.chunks[chunkIso.toString()] = chunk;
     this.addChild(chunk);
+    // Editing the map can create a chunk under the character's feet
+    if (this.block && this.isInBlock(chunkIso)) {
+      chunk.lendViewsTo(this.block.container);
+    }
     return chunk;
   }
 
@@ -431,13 +479,13 @@ export class Map extends Container {
       !newHoveredEntity?.iso.equals(this.hoveredEntity?.iso)
     ) {
       if (this.hoveredEntity?.entity && !this.hoveredEntity.entity.destroyed) {
-        this.hoveredEntity.entity.chunk.removeChild(
+        this.hoveredEntity.entity.chunk.removeCursorSprite(
           this.cursorSprites[this.hoveredEntity.side]
         );
       }
       if (newHoveredEntity?.entity) {
         newHoveredEntity.entity.chunk.addCursorSpriteAt(
-          this.toLocalIso(newHoveredEntity.iso),
+          newHoveredEntity.iso,
           this.cursorSprites[newHoveredEntity.side]
         );
       }
@@ -533,17 +581,21 @@ export class Map extends Container {
   }
 
   public addCharacterAt(globalIso: GlobalIsoCoordinates, type: CharacterType) {
+    if (this.character) {
+      // One character per map for now. Without this the previous one would
+      // leave its meshes in the live block forever, still drawn and never
+      // updated again.
+      console.warn(
+        `Replacing the character of the map: only one is supported, ${type} evicts ${this.character.type}`
+      );
+      this.character.destroy();
+    }
     this.character = new Character({
       type,
       globalIsoCoordinates: globalIso,
-      localIsoCoordinates: this.toLocalIso(globalIso),
-      chunk: this.getOrCreateChunkAt(globalIso),
       direction: "south",
     });
-    this.character.chunk.addCharacterAt(
-      this.character.localIsoCoordinates,
-      this.character
-    );
+    this.syncView();
   }
 
   private sampleInput() {
@@ -594,9 +646,9 @@ export class Map extends Container {
 
     // Both axes are swept against the same starting box: this is what makes
     // the character slide along a wall instead of sticking to it.
-    const walkBox = IsoBox.fromOriginAndSize(
+    const walkBox = IsoBox.standingOn(
       this.character.globalIsoCoordinates,
-      CHARACTER_SIZE
+      this.character.hitbox
     );
     const walked = this.character.globalIsoCoordinates.add(
       new IsoCoordinates(
@@ -607,7 +659,7 @@ export class Map extends Container {
     );
 
     // Gravity is just one more sweep, on the u axis
-    const fallBox = IsoBox.fromOriginAndSize(walked, CHARACTER_SIZE);
+    const fallBox = IsoBox.standingOn(walked, this.character.hitbox);
     this.character.globalIsoCoordinates = walked.add(
       new IsoCoordinates(
         0,
@@ -617,30 +669,111 @@ export class Map extends Container {
     );
   }
 
+  /** The chunks of the block at `origin` that exist, in no particular order. */
+  private blockChunks(origin: ChunkIsoCoordinates): MapChunk[] {
+    const found: MapChunk[] = [];
+    for (let s = origin.s; s < origin.s + BLOCK_SIDE; s++) {
+      for (let e = origin.e; e < origin.e + BLOCK_SIDE; e++) {
+        const chunk = this.chunks[new ChunkIsoCoordinates(s, e, 0).toString()];
+        if (chunk) found.push(chunk);
+      }
+    }
+    return found;
+  }
+
+  private isInBlock(chunkIso: ChunkIsoCoordinates): boolean {
+    const origin = this.block?.origin;
+    return (
+      origin !== undefined &&
+      chunkIso.s >= origin.s &&
+      chunkIso.s < origin.s + BLOCK_SIDE &&
+      chunkIso.e >= origin.e &&
+      chunkIso.e < origin.e + BLOCK_SIDE
+    );
+  }
+
+  /**
+   * Keep the square of chunks around the character drawn as a single
+   * container, and return it.
+   *
+   * A chunk is a container, so it is drawn atomically: everything in it goes
+   * before everything in the next one. That is what a character standing
+   * across two of them cannot express — it needs to come after a cell of one
+   * and before a cell of the other. So while it is there, those chunks stop
+   * being separate containers: they lend their cells to one block, which sorts
+   * cells and character bands alike by the global depth key. That is exactly
+   * the order sliceEntity assumes, which is why it needs to know nothing about
+   * chunks.
+   *
+   * The chunks outside the block keep being drawn atomically, which is what
+   * leaves the door open to baking them into a single texture one day.
+   */
+  private syncBlock(iso: GlobalIsoCoordinates): Container {
+    const size = this.chunksSize;
+    // the block whose centre is nearest, so that the character is never within
+    // half a chunk of its edge
+    const origin = new ChunkIsoCoordinates(
+      Math.round(iso.s / size - BLOCK_SIDE / 2),
+      Math.round(iso.e / size - BLOCK_SIDE / 2),
+      0
+    );
+    if (this.block?.origin.equals(origin)) return this.block.container;
+
+    let container = this.block?.container;
+    if (!container) {
+      container = new Container();
+      container.eventMode = "none";
+      container.sortableChildren = true;
+      this.addChild(container);
+    }
+    this.releaseBlockChunks();
+    this.block = { container, origin };
+    container.zIndex = origin.s + origin.e + BLOCK_SIDE - 1;
+    for (const chunk of this.blockChunks(origin)) {
+      chunk.lendViewsTo(container);
+    }
+    return container;
+  }
+
+  private releaseBlockChunks() {
+    if (!this.block) return;
+    for (const chunk of this.blockChunks(this.block.origin)) {
+      chunk.takeViewsBack();
+    }
+  }
+
+  private dissolveBlock() {
+    if (!this.block) return;
+    this.releaseBlockChunks();
+    this.removeChild(this.block.container);
+    this.block.container.destroy({ children: false });
+    this.block = undefined;
+  }
+
+  /**
+   * A character straddles cells, so it cannot be a single sprite with a single
+   * depth key: it is cut into horizontal bands, each drawn at the key its rows
+   * need. They all go into the live block, whose cells are sorted by that same
+   * key — see syncBlock.
+   */
   private syncView() {
-    if (!this.character) {
+    const character = this.character;
+    if (!character) {
+      this.dissolveBlock();
       return;
     }
-
-    const newChunk = this.getOrCreateChunkAt(
-      this.character.globalIsoCoordinates
-    );
-    if (newChunk !== this.character.chunk) {
-      this.character.chunk.removeChild(this.character);
-      newChunk.addChild(this.character);
-      this.character.chunk = newChunk;
+    const block = this.syncBlock(character.globalIsoCoordinates);
+    if (character.needsSlicing) {
+      character.setSlices(
+        sliceEntity({
+          iso: character.globalIsoCoordinates,
+          hitbox: character.hitbox,
+          spriteWidth: character.spriteWidth,
+          spriteHeight: character.spriteHeight,
+        })
+      );
     }
-    this.character.localIsoCoordinates = new LocalIsoCoordinates(
-      this.character.globalIsoCoordinates.s -
-        this.character.chunk.chunkIsoCoordinates.s * this.chunksSize,
-      this.character.globalIsoCoordinates.e -
-        this.character.chunk.chunkIsoCoordinates.e * this.chunksSize,
-      this.character.globalIsoCoordinates.u
-    );
-    this.character.chunk.positionCharacterAt(
-      this.character.localIsoCoordinates,
-      this.character
-    );
+    character.render(block);
   }
 
   private updateCosmetics(time: Ticker) {
@@ -654,14 +787,128 @@ export class Map extends Container {
     }
   }
 
+  /**
+   * DEBUG — writes the depth key on every cell around the character and on
+   * every band of its sprite, so the order they are drawn in can be read off
+   * the screen. Toggled with F10, see DebugView.
+   *
+   * Only the cells the character can reach are labelled: a whole map's worth of
+   * text would be unreadable, and unrelated to what the cut depends on.
+   */
+  private syncDepthKeys() {
+    const character = this.character;
+    if (!debugViewEnabled() || !character) {
+      this.depthKeyLabels.forEach((label) => (label.visible = false));
+      return;
+    }
+    if (!this.depthKeyOverlay) {
+      this.depthKeyOverlay = new Container();
+      // above every chunk, whatever their diagonal
+      this.depthKeyOverlay.zIndex = Number.MAX_SAFE_INTEGER;
+      this.addChild(this.depthKeyOverlay);
+    }
+
+    let used = 0;
+    /** `where` above `key`, the pair centred on (x, y). */
+    const write = (
+      where: string,
+      key: string,
+      x: number,
+      y: number,
+      fill: number
+    ) => {
+      const label = (this.depthKeyLabels[used] ??=
+        this.depthKeyOverlay!.addChild(
+          new Text({
+            text: "",
+            // A cell is 32 px wide and holds two lines of up to thirteen
+            // characters, so the type has to be tiny not to collide with the
+            // neighbours'. Rendering it at eight times the size keeps it
+            // readable once the viewport zooms in.
+            resolution: 8,
+            anchor: 0.5,
+            style: {
+              fontFamily: "monospace",
+              fontSize: 2,
+              align: "center",
+              fill: 0xffffff,
+              // in style pixels, so it has to shrink with the type
+              stroke: { color: 0x000000, width: 0.5 },
+            },
+          })
+        ));
+      used++;
+      label.visible = true;
+      const text = `${where}\n${key}`;
+      // both of these rebuild the text's texture, so only when they change
+      if (label.text !== text) label.text = text;
+      if (label.style.fill !== fill) label.style.fill = fill;
+      label.x = x;
+      label.y = y;
+    };
+
+    const { s, e, u } = character.globalIsoCoordinates;
+    const radius = 3;
+    for (let cs = Math.floor(s) - radius; cs <= Math.floor(s) + radius; cs++) {
+      for (
+        let ce = Math.floor(e) - radius;
+        ce <= Math.floor(e) + radius;
+        ce++
+      ) {
+        for (let cu = Math.floor(u) - 2; cu <= Math.floor(u) + 3; cu++) {
+          const iso = new GlobalIsoCoordinates(cs, ce, cu);
+          // only what is actually drawn: a buried cell's label would float over
+          // the tiles hiding it
+          if (!this.isCellOccupied(iso) || !this.isInShell(iso)) continue;
+          const xy = iso.toXY();
+          // the middle of the cell's top face, which is the top half of its
+          // 32×24 sprite
+          write(
+            iso.toString(),
+            `${iso.paintersOrderKey()}`,
+            xy.x + 16,
+            xy.y + 8,
+            0xffffff
+          );
+        }
+      }
+    }
+    const slicing = character.slicing;
+    const bands = slicing?.bands ?? [];
+    bands.forEach((band, index) => {
+      // A band belongs to no cell, so what places it is the rows it covers —
+      // except the bottom one, where reading the character's own position
+      // right next to the cell it stands on is worth more.
+      const where =
+        index === bands.length - 1
+          ? `${s.toFixed(1)},${e.toFixed(1)},${u.toFixed(1)}`
+          : `${band.offsetY}-${band.offsetY + band.height - 1}`;
+      write(
+        where,
+        `${band.zIndex}`,
+        slicing!.x + character.spriteWidth / 2,
+        slicing!.y + band.offsetY + band.height / 2,
+        0xffe066
+      );
+    });
+    for (let index = used; index < this.depthKeyLabels.length; index++) {
+      this.depthKeyLabels[index].visible = false;
+    }
+  }
+
   public update(time: Ticker) {
     const input = this.sampleInput();
     this.simulate(time, input);
-    this.syncView();
+    // cosmetics first: it picks the animation frame the view is cut from
     this.updateCosmetics(time);
+    this.syncView();
+    this.syncDepthKeys();
   }
 
   public destroy(options?: { children?: boolean; texture?: boolean }) {
+    this.character?.destroy();
+    // before the chunks: they take their views back from it
+    this.dissolveBlock();
     this.cursorSprites.up.destroy();
     this.cursorSprites.east.destroy();
     this.cursorSprites.south.destroy();
