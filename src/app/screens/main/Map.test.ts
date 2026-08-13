@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { walkVelocity } from "./Map";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { Ticker } from "pixi.js";
+import { fallVelocity, MapData, walkVelocity } from "./Map";
+import { buildHeadlessMap } from "./__tests__/composeMapImage";
+import { GlobalIsoCoordinates } from "./IsometricCoordinate";
 
 /** Where a walk of one second lands on screen, in pixels */
 const onScreen = (leftStickX: number, leftStickY: number) => {
@@ -61,5 +64,124 @@ describe("walkVelocity", () => {
 
   it("stands still on a centred stick", () => {
     expect(walkVelocity(0, 0)).toEqual({ s: 0, e: 0 });
+  });
+});
+
+/** One frame at 60 Hz */
+const FRAME = 1 / 60;
+
+/** Where a jump takes the character, integrated frame by frame */
+const jumpArc = () => {
+  const heights: number[] = [];
+  let speed = fallVelocity(0, { grounded: true, jump: true, seconds: FRAME });
+  let height = 0;
+  // until it is back where it started
+  for (let frame = 0; frame < 600 && (height > 0 || speed > 0); frame++) {
+    height += speed * FRAME;
+    heights.push(height);
+    speed = fallVelocity(speed, {
+      grounded: false,
+      jump: false,
+      seconds: FRAME,
+    });
+  }
+  return heights;
+};
+
+describe("fallVelocity", () => {
+  it("stays put on the ground with nothing pressed", () => {
+    // it keeps asking to go down; the floor is what refuses
+    expect(
+      fallVelocity(0, { grounded: true, jump: false, seconds: FRAME })
+    ).toBeLessThan(0);
+    // and the speed it landed with is not carried into the next frame
+    const landed = fallVelocity(-12, {
+      grounded: true,
+      jump: false,
+      seconds: FRAME,
+    });
+    expect(landed).toBe(
+      fallVelocity(0, { grounded: true, jump: false, seconds: FRAME })
+    );
+  });
+
+  it("leaves the ground when A is pressed", () => {
+    expect(
+      fallVelocity(0, { grounded: true, jump: true, seconds: FRAME })
+    ).toBeGreaterThan(0);
+  });
+
+  it("ignores A in mid-air", () => {
+    const falling = fallVelocity(-3, {
+      grounded: false,
+      jump: true,
+      seconds: FRAME,
+    });
+    expect(falling).toBe(
+      fallVelocity(-3, { grounded: false, jump: false, seconds: FRAME })
+    );
+  });
+
+  it("clears a cell and comes back down", () => {
+    const arc = jumpArc();
+    // high enough to climb onto anything one cell tall, not so high it flies
+    expect(Math.max(...arc)).toBeGreaterThan(1.1);
+    expect(Math.max(...arc)).toBeLessThan(1.5);
+    // and it is over quickly: a jump is not a float
+    expect(arc.length * FRAME).toBeLessThan(0.7);
+  });
+
+  it("never falls fast enough to cross a cell in one frame", () => {
+    let speed = 0;
+    for (let frame = 0; frame < 600; frame++) {
+      speed = fallVelocity(speed, {
+        grounded: false,
+        jump: false,
+        seconds: FRAME,
+      });
+    }
+    expect(Math.abs(speed * FRAME)).toBeLessThan(1);
+  });
+});
+
+describe("a character falling onto the ground", () => {
+  beforeAll(() => {
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+  });
+
+  const floor = (): MapData => {
+    const tiles: Record<string, string> = {};
+    for (let s = 2; s <= 6; s++) {
+      for (let e = 2; e <= 6; e++) tiles[`${s},${e},0`] = "dirt";
+    }
+    return { tiles, objects: {}, characters: { "4,4,6": "005-reptincel" } };
+  };
+
+  it("lands on it and stops there", () => {
+    const map = buildHeadlessMap(floor());
+    const tick = { deltaMS: 1000 / 60, lastTime: 0 } as Ticker;
+    for (let frame = 0; frame < 120; frame++) map.update(tick);
+    // the floor occupies u = 0, so its feet rest at u = 1
+    expect(map.character!.globalIsoCoordinates.u).toBe(1);
+    expect(map.character!.verticalSpeed).toBe(0);
+    map.destroy({ children: true });
+  });
+
+  it("goes up before it comes down when it is given a jump", () => {
+    const map = buildHeadlessMap(floor());
+    const tick = { deltaMS: 1000 / 60, lastTime: 0 } as Ticker;
+    for (let frame = 0; frame < 120; frame++) map.update(tick);
+
+    map.character!.verticalSpeed = 10;
+    let highest = 1;
+    for (let frame = 0; frame < 120; frame++) {
+      map.update(tick);
+      highest = Math.max(highest, map.character!.globalIsoCoordinates.u);
+    }
+    expect(highest).toBeGreaterThan(2);
+    expect(map.character!.globalIsoCoordinates).toEqual(
+      new GlobalIsoCoordinates(4, 4, 1)
+    );
+    map.destroy({ children: true });
   });
 });

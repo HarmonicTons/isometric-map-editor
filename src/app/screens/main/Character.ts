@@ -89,6 +89,8 @@ export class Character {
   /** What it occupies, for collision and for depth order alike */
   public hitbox = CHARACTER_HITBOX.default;
   public globalIsoCoordinates: GlobalIsoCoordinates;
+  /** How fast it is rising, in cells per second. Negative while falling. */
+  public verticalSpeed = 0;
   public state: CharacterState;
   public direction: CharacterDirection;
 

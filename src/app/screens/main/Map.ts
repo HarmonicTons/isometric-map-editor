@@ -42,8 +42,45 @@ const shellTilesRelativeCoordinates = [
 
 /** Character walking speed, in cells per second */
 const CHARACTER_SPEED = 3;
-/** Fall speed, in cells per second */
-const GRAVITY = 5;
+/** Fall acceleration, in cells per second squared */
+const GRAVITY = 40;
+/** Speed a jump leaves the ground at, in cells per second */
+const JUMP_SPEED = 10;
+/**
+ * Fastest it can fall, in cells per second. It exists so that a long drop
+ * cannot cross a whole cell between two frames and land inside the floor.
+ */
+const TERMINAL_SPEED = 20;
+
+/**
+ * How far below its feet the ground is looked for, in cells. Small enough that
+ * it only ever finds a floor the character is already resting on.
+ */
+const GROUND_PROBE = 1e-6;
+
+/**
+ * The character's vertical speed after one frame, in cells per second.
+ *
+ * Vertical motion is a speed the ground zeroes and A resets, not the constant
+ * it used to be: that is the whole difference between a jump and a lift. With
+ * these numbers the apex is JUMP_SPEED² / 2·GRAVITY = 1.25 cells — enough to
+ * climb onto anything one cell high — reached in a quarter of a second. A
+ * little more in practice: the first frame of a jump moves at the full jump
+ * speed before any gravity is taken off it.
+ */
+export const fallVelocity = (
+  verticalSpeed: number,
+  {
+    grounded,
+    jump,
+    seconds,
+  }: { grounded: boolean; jump: boolean; seconds: number }
+): number => {
+  if (jump && grounded) return JUMP_SPEED;
+  // standing on the floor: whatever speed it fell in with is spent
+  const carried = grounded && verticalSpeed <= 0 ? 0 : verticalSpeed;
+  return Math.max(-TERMINAL_SPEED, carried - GRAVITY * seconds);
+};
 
 /**
  * Where the stick asks the character to walk, in cells per second.
@@ -128,6 +165,8 @@ export class Map extends Container {
   private block?: { container: Container; origin: ChunkIsoCoordinates };
 
   private velocity = new IsoCoordinates(0, 0, 0);
+  /** Whether A was already down last frame, so a hold is not a second jump */
+  private jumpHeld = false;
 
   /**
    * How fast the character actually moved last frame, in cells per second —
@@ -638,13 +677,16 @@ export class Map extends Container {
   }
 
   /**
-   * The left stick of the first gamepad that is there, or nothing.
+   * The left stick and the jump button of the first gamepad that is there, or
+   * nothing.
    *
    * Asked afresh every frame rather than remembered from `gamepadconnected`:
    * the browser leaves a null in the slot once a pad is unplugged and fires no
    * event this side can act on, so a remembered index turns into a crash on
    * every frame of the ticker. Polling also means a pad plugged in halfway
    * through, or a map loaded after it, just works.
+   *
+   * `jump` is the press, not the hold: holding A down does not bounce.
    */
   private sampleInput() {
     // node has a navigator, but no gamepads on it
@@ -652,36 +694,40 @@ export class Map extends Container {
       ?.getGamepads?.()
       .find((pad) => pad !== null);
     if (!gamepad) {
-      return {
-        leftStickX: 0,
-        leftStickY: 0,
-      };
+      this.jumpHeld = false;
+      return { leftStickX: 0, leftStickY: 0, jump: false };
     }
     const [leftStickX, leftStickY] = gamepad.axes;
     const deadzone = 0.15;
+    // 0 is A on an Xbox pad, Cross on a PlayStation one: the standard mapping
+    const held = gamepad.buttons[0]?.pressed === true;
+    const jump = held && !this.jumpHeld;
+    this.jumpHeld = held;
 
     return {
       leftStickX: Math.abs(leftStickX) > deadzone ? leftStickX : 0,
       leftStickY: Math.abs(leftStickY) > deadzone ? leftStickY : 0,
+      jump,
     };
   }
 
   private simulate(
     time: Ticker,
-    input: { leftStickX: number; leftStickY: number }
+    input: { leftStickX: number; leftStickY: number; jump: boolean }
   ) {
-    if (!this.character) {
+    const character = this.character;
+    if (!character) {
       return;
     }
     const seconds = time.deltaMS / 1000;
-    const before = this.character.globalIsoCoordinates;
+    const before = character.globalIsoCoordinates;
 
     const velocity = walkVelocity(input.leftStickX, input.leftStickY);
     const deltaS = velocity.s * seconds;
     const deltaE = velocity.e * seconds;
 
     if (deltaS !== 0 || deltaE !== 0) {
-      this.character.direction =
+      character.direction =
         Math.abs(deltaS) > Math.abs(deltaE)
           ? deltaS > 0
             ? "south"
@@ -694,10 +740,10 @@ export class Map extends Container {
     // Both axes are swept against the same starting box: this is what makes
     // the character slide along a wall instead of sticking to it.
     const walkBox = IsoBox.standingOn(
-      this.character.globalIsoCoordinates,
-      this.character.hitbox
+      character.globalIsoCoordinates,
+      character.hitbox
     );
-    const walked = this.character.globalIsoCoordinates.add(
+    const walked = character.globalIsoCoordinates.add(
       new IsoCoordinates(
         this.freeDistance(walkBox, "s", deltaS),
         this.freeDistance(walkBox, "e", deltaE),
@@ -705,16 +751,22 @@ export class Map extends Container {
       )
     );
 
-    // Gravity is just one more sweep, on the u axis
-    const fallBox = IsoBox.standingOn(walked, this.character.hitbox);
-    const after = walked.add(
-      new IsoCoordinates(
-        0,
-        0,
-        this.freeDistance(fallBox, "u", -GRAVITY * seconds)
-      )
-    );
-    this.character.globalIsoCoordinates = after;
+    // Rising and falling are one more sweep, on the u axis. Standing on
+    // something is asking to go down and being refused, which is also what
+    // tells a jump it is allowed.
+    const fallBox = IsoBox.standingOn(walked, character.hitbox);
+    const grounded = this.freeDistance(fallBox, "u", -GROUND_PROBE) === 0;
+    character.verticalSpeed = fallVelocity(character.verticalSpeed, {
+      grounded,
+      jump: input.jump,
+      seconds,
+    });
+    const wanted = character.verticalSpeed * seconds;
+    const rise = this.freeDistance(fallBox, "u", wanted);
+    // a floor caught it, or its head hit a ceiling: the speed is spent
+    if (rise !== wanted) character.verticalSpeed = 0;
+    const after = walked.add(new IsoCoordinates(0, 0, rise));
+    character.globalIsoCoordinates = after;
 
     // What it actually did, not what the stick asked for: a wall it is pressed
     // against and the ground under its feet both show up here as a zero.
