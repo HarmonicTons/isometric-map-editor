@@ -1,4 +1,4 @@
-import { Container, Mesh, MeshGeometry, Texture, Ticker } from "pixi.js";
+import { Container, Mesh, MeshGeometry, Texture } from "pixi.js";
 import { GlobalIsoCoordinates, IsoCoordinates } from "./IsometricCoordinate";
 import { NoTextureFoundError } from "./NoTextureFoundError";
 import { maxBands, type EntityBand, type EntitySlices } from "./EntityBands";
@@ -33,7 +33,30 @@ const directionKey: Record<CharacterDirection, string> = {
  * Whatever the sprite draws outside its silhouette is ordered by
  * approximation; EntityBands.test.ts measures how much that is.
  */
-const CHARACTER_HITBOX = new IsoCoordinates(0.8, 0.8, 1.9);
+const CHARACTER_HITBOX: Record<string, IsoCoordinates> = {
+  default: new IsoCoordinates(0.8, 0.8, 1.9),
+  "005-reptincel": new IsoCoordinates(0.8, 0.8, 1.9),
+  "095-onix": new IsoCoordinates(1.8, 1.8, 3.9),
+};
+
+/**
+ * The frames of the walk cycle, in the order they are shown: a step, legs
+ * together, the other step, legs together.
+ */
+const WALK_CYCLE = [1, 2, 3, 2];
+
+/** Legs together — what it stands on when it is not going anywhere. */
+const NEUTRAL_FRAME = 2;
+
+/**
+ * How far the character walks between two frames of the cycle, in cells.
+ *
+ * Frames follow the distance covered rather than the clock, so the cadence is
+ * whatever the speed is: half speed, half cadence, and the feet never slide
+ * over the ground. Half a cell is what the old fixed 250 ms per frame came out
+ * at when walking at full speed, so nothing changes at full stick.
+ */
+const CELLS_PER_FRAME = 0.4;
 
 /**
  * DEBUG — one tint per band while the depth order overlay is on, so where and
@@ -64,13 +87,16 @@ type CharacterPiece = {
 export class Character {
   public readonly type: CharacterType;
   /** What it occupies, for collision and for depth order alike */
-  public readonly hitbox = CHARACTER_HITBOX;
+  public hitbox = CHARACTER_HITBOX.default;
   public globalIsoCoordinates: GlobalIsoCoordinates;
   public state: CharacterState;
   public direction: CharacterDirection;
 
   /** Animation frame currently displayed, as found in the atlas */
   private animationTexture: Texture;
+  /** Ground covered since it last stood still, in cells. See update. */
+  private walked = 0;
+  private walkedFrom?: { s: number; e: number };
   private pieces: CharacterPiece[] = [];
   private slices?: EntitySlices;
   private slicedAt?: {
@@ -93,6 +119,7 @@ export class Character {
     globalIsoCoordinates: GlobalIsoCoordinates;
   }) {
     this.type = type;
+    this.hitbox = CHARACTER_HITBOX[type] ?? CHARACTER_HITBOX.default;
     this.state = state;
     this.direction = direction;
     this.globalIsoCoordinates = globalIsoCoordinates;
@@ -134,9 +161,29 @@ export class Character {
     return this.animationTexture.frame.height;
   }
 
-  public update(time: Ticker) {
-    const animationFrameIndex = Math.floor(time.lastTime / 250) % 4;
-    const animationFrame = [1, 2, 3, 2][animationFrameIndex];
+  /**
+   * Pick the animation frame the character's ground travel has earned.
+   *
+   * Only s and e count: falling is not walking, and a character pressed into a
+   * wall covers no ground and so stands still rather than walking on the spot.
+   */
+  public update() {
+    const previous = this.walkedFrom;
+    const { s, e } = this.globalIsoCoordinates;
+    this.walkedFrom = { s, e };
+    const step = previous ? Math.hypot(s - previous.s, e - previous.e) : 0;
+    if (step === 0) {
+      // start the next departure on a step rather than mid-stride
+      this.walked = 0;
+    }
+    this.walked += step;
+
+    const animationFrame =
+      step === 0
+        ? NEUTRAL_FRAME
+        : WALK_CYCLE[
+            Math.floor(this.walked / CELLS_PER_FRAME) % WALK_CYCLE.length
+          ];
     this.animationTexture = Character.getTexture(
       this.type,
       this.state,

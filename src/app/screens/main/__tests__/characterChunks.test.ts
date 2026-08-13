@@ -16,7 +16,7 @@ import { MapChunk } from "../MapChunk";
  * a single container and lose its chunking altogether.
  */
 
-const CHARACTER = "005-reptincel";
+const CHARACTER = "095-reptincel";
 
 /**
  * A long walkway that stops exactly on the chunk boundary at e = 8, so a

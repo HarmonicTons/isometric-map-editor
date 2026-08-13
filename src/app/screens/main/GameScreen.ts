@@ -1,6 +1,6 @@
 import { Viewport } from "pixi-viewport";
 import type { Point, Texture, Ticker } from "pixi.js";
-import { Assets, Container } from "pixi.js";
+import { Assets, Container, Text } from "pixi.js";
 import { engine } from "../../getEngine";
 import { Background } from "./Background";
 import { ControlBar } from "./ControlBar";
@@ -8,7 +8,7 @@ import { Map, MapData } from "./Map";
 import type { MapObjectType } from "./MapObject";
 import type { TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
-import { listenForDebugViewToggle } from "./DebugView";
+import { debugViewEnabled, listenForDebugViewToggle } from "./DebugView";
 
 export type CursorAction =
   | {
@@ -35,6 +35,8 @@ export class GameScreen extends Container {
   public mapContainer: Viewport;
   private paused = false;
   private map?: Map;
+  /** DEBUG readout, see syncVelocityReadout */
+  private velocityReadout: Text;
   public tileFragmentsTextures: TileFragmentsTextures;
   public cursorAction: CursorAction;
 
@@ -89,7 +91,6 @@ export class GameScreen extends Container {
         }
       });
 
-
     listenForDebugViewToggle();
 
     // TODO: use another system to register the textures instead of using Pixi's cache
@@ -129,6 +130,51 @@ export class GameScreen extends Container {
       tileFragmentsTextures: this.tileFragmentsTextures,
     });
     this.addChild(this.controlBar);
+
+    // A child of the screen, not of the viewport: that is what keeps it still
+    // while the map pans and zooms under it. Top right, the control bar has
+    // the left edge.
+    this.velocityReadout = new Text({
+      text: "",
+      style: {
+        fontFamily: "monospace",
+        fontSize: 12,
+        align: "right",
+        fill: 0x6bc8ff,
+        stroke: { color: 0x000000, width: 3 },
+      },
+    });
+    this.velocityReadout.anchor.set(1, 0);
+    this.velocityReadout.visible = false;
+    this.addChild(this.velocityReadout);
+    this.placeVelocityReadout(engine().screen.width);
+  }
+
+  private placeVelocityReadout(width: number) {
+    this.velocityReadout.x = width - 12;
+    this.velocityReadout.y = 12;
+  }
+
+  /**
+   * DEBUG — how fast the character is actually moving, in cells per second,
+   * pinned to the corner rather than to the character so that it stays
+   * readable while it moves. Toggled with F10, see DebugView.
+   */
+  private syncVelocityReadout() {
+    const character = this.map?.character;
+    this.velocityReadout.visible =
+      debugViewEnabled() && character !== undefined;
+    if (!this.velocityReadout.visible) return;
+    const { s, e, u } = this.map!.characterVelocity;
+    // the ground speed last, on its own: it is the one that should not change
+    // with the direction, and the one that paces the walk cycle
+    const text = [
+      `s ${s.toFixed(2)}`,
+      `e ${e.toFixed(2)}`,
+      `u ${u.toFixed(2)}`,
+      `${Math.hypot(s, e).toFixed(2)} cells/s`,
+    ].join("\n");
+    if (this.velocityReadout.text !== text) this.velocityReadout.text = text;
   }
 
   public extractToPng = async () => {
@@ -161,8 +207,8 @@ export class GameScreen extends Container {
   /** Update the screen */
 
   public update(time: Ticker) {
-    if (this.paused || !this.map) return;
-    this.map.update(time);
+    if (!this.paused && this.map) this.map.update(time);
+    this.syncVelocityReadout();
   }
 
   /** Pause gameplay - automatically fired when a popup is presented */
@@ -185,6 +231,7 @@ export class GameScreen extends Container {
     this.background.resize(width, height);
     this.mapContainer.resize(width, height);
     this.controlBar.resize(width, height);
+    this.placeVelocityReadout(width);
   }
 
   /** Show screen with animations */

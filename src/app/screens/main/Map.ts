@@ -41,9 +41,37 @@ const shellTilesRelativeCoordinates = [
 ];
 
 /** Character walking speed, in cells per second */
-const CHARACTER_SPEED = 2;
+const CHARACTER_SPEED = 3;
 /** Fall speed, in cells per second */
 const GRAVITY = 5;
+
+/**
+ * Where the stick asks the character to walk, in cells per second.
+ *
+ * The stick points somewhere on the screen; the character walks in the grid.
+ * Undoing the projection gives which way that is: x = 16(e − s) and
+ * y = 8(e + s), so a screen direction (x, y) is (y/8 − x/16) along s and
+ * (y/8 + x/16) along e.
+ *
+ * Normalising THAT is what keeps the speed constant in cells. Normalising the
+ * screen direction instead keeps it constant in pixels, which is not the same
+ * thing at all: the projection squashes y by two, so walking up the screen
+ * would cover twice the ground of walking across it — and now that the walk
+ * cycle follows the ground covered, the legs would visibly race.
+ */
+export const walkVelocity = (
+  leftStickX: number,
+  leftStickY: number
+): { s: number; e: number } => {
+  const towardS = leftStickY / 8 - leftStickX / 16;
+  const towardE = leftStickY / 8 + leftStickX / 16;
+  const length = Math.hypot(towardS, towardE);
+  if (length === 0) return { s: 0, e: 0 };
+  // a stick pushed into a corner is longer than one pushed straight
+  const push = Math.min(1, Math.hypot(leftStickX, leftStickY));
+  const pace = (push * CHARACTER_SPEED) / length;
+  return { s: towardS * pace, e: towardE * pace };
+};
 
 /**
  * Side of the live block, in chunks — the square of chunks around the
@@ -98,6 +126,16 @@ export class Map extends Container {
 
   /** The square of chunks around the character, drawn as one. See syncBlock. */
   private block?: { container: Container; origin: ChunkIsoCoordinates };
+
+  private velocity = new IsoCoordinates(0, 0, 0);
+
+  /**
+   * How fast the character actually moved last frame, in cells per second —
+   * what it did, not what the stick asked for. Read by the debug readout.
+   */
+  public get characterVelocity(): IsoCoordinates {
+    return this.velocity;
+  }
 
   /** DEBUG overlay, see syncDepthKeys */
   private depthKeyOverlay?: Container;
@@ -636,15 +674,11 @@ export class Map extends Container {
       return;
     }
     const seconds = time.deltaMS / 1000;
+    const before = this.character.globalIsoCoordinates;
 
-    // The stick is read in screen space: un-squash y by the 2:1 iso ratio so
-    // that the resulting speed is uniform in screen pixels in any direction.
-    const deltaX = input.leftStickX * seconds;
-    const deltaY = input.leftStickY * seconds * 2;
-    const magnitude = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-    const angle = Math.atan2(deltaY, deltaX);
-    const deltaS = magnitude * Math.sin(angle - Math.PI / 4) * CHARACTER_SPEED;
-    const deltaE = magnitude * Math.cos(angle - Math.PI / 4) * CHARACTER_SPEED;
+    const velocity = walkVelocity(input.leftStickX, input.leftStickY);
+    const deltaS = velocity.s * seconds;
+    const deltaE = velocity.e * seconds;
 
     if (deltaS !== 0 || deltaE !== 0) {
       this.character.direction =
@@ -673,13 +707,24 @@ export class Map extends Container {
 
     // Gravity is just one more sweep, on the u axis
     const fallBox = IsoBox.standingOn(walked, this.character.hitbox);
-    this.character.globalIsoCoordinates = walked.add(
+    const after = walked.add(
       new IsoCoordinates(
         0,
         0,
         this.freeDistance(fallBox, "u", -GRAVITY * seconds)
       )
     );
+    this.character.globalIsoCoordinates = after;
+
+    // What it actually did, not what the stick asked for: a wall it is pressed
+    // against and the ground under its feet both show up here as a zero.
+    if (seconds > 0) {
+      this.velocity = new IsoCoordinates(
+        (after.s - before.s) / seconds,
+        (after.e - before.e) / seconds,
+        (after.u - before.u) / seconds
+      );
+    }
   }
 
   /** The chunks of the block at `origin` that exist, in no particular order. */
@@ -796,7 +841,7 @@ export class Map extends Container {
     }
 
     if (this.character) {
-      this.character.update(time);
+      this.character.update();
     }
   }
 
@@ -822,10 +867,10 @@ export class Map extends Container {
     }
 
     let used = 0;
-    /** `where` above `key`, the pair centred on (x, y). */
+    /** Two lines, the pair centred on (x, y). */
     const write = (
-      where: string,
-      key: string,
+      top: string,
+      bottom: string,
       x: number,
       y: number,
       fill: number
@@ -852,7 +897,7 @@ export class Map extends Container {
         ));
       used++;
       label.visible = true;
-      const text = `${where}\n${key}`;
+      const text = `${top}\n${bottom}`;
       // both of these rebuild the text's texture, so only when they change
       if (label.text !== text) label.text = text;
       if (label.style.fill !== fill) label.style.fill = fill;
