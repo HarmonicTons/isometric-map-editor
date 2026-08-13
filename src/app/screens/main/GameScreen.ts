@@ -89,11 +89,6 @@ export class GameScreen extends Container {
         }
       });
 
-    window.addEventListener("gamepadconnected", (e) => {
-      console.debug(`Gamepad connected : ${e.gamepad.id}`);
-      if (!this.map) return;
-      this.map.gamepadIndex = e.gamepad.index;
-    });
 
     listenForDebugViewToggle();
 

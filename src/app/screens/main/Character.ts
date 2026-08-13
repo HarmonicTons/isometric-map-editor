@@ -1,7 +1,7 @@
 import { Container, Mesh, MeshGeometry, Texture, Ticker } from "pixi.js";
 import { GlobalIsoCoordinates, IsoCoordinates } from "./IsometricCoordinate";
 import { NoTextureFoundError } from "./NoTextureFoundError";
-import type { EntityBand, EntitySlices } from "./EntityBands";
+import { maxBands, type EntityBand, type EntitySlices } from "./EntityBands";
 import { debugViewEnabled } from "./DebugView";
 
 /**
@@ -34,15 +34,6 @@ const directionKey: Record<CharacterDirection, string> = {
  * approximation; EntityBands.test.ts measures how much that is.
  */
 const CHARACTER_HITBOX = new IsoCoordinates(0.8, 0.8, 1.9);
-
-/**
- * Most pieces a character can be cut into: a band boundary only ever falls on
- * the 8-pixel screen lattice, so a 32-pixel sprite crosses four of them and can
- * never need a fifth band. Nothing breaks past it — the pool just grows — but a
- * taller sprite is worth knowing about, because every piece is a mesh kept for
- * the lifetime of the character.
- */
-const EXPECTED_MAX_PIECES = 4;
 
 /**
  * DEBUG — one tint per band while the depth order overlay is on, so where and
@@ -192,10 +183,13 @@ export class Character {
   public render(host: Container) {
     const slices = this.slices;
     if (!slices) return;
+    const most = maxBands(this.spriteHeight);
     while (this.pieces.length < slices.bands.length) {
-      if (this.pieces.length === EXPECTED_MAX_PIECES) {
+      if (this.pieces.length === most) {
+        // more bands than the lattice can produce: the cut is wrong, not the
+        // position. Keep drawing rather than crash the frame.
         console.warn(
-          `Character ${this.type} needs more than ${EXPECTED_MAX_PIECES} bands at ${this.globalIsoCoordinates.toString()}`
+          `Character ${this.type} needs more than ${most} bands at ${this.globalIsoCoordinates.toString()}`
         );
       }
       this.pieces.push(this.createPiece());

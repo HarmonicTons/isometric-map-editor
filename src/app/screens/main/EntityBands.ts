@@ -94,6 +94,18 @@ const WALK_LIMIT = 6;
 const LATTICE = 8;
 
 /**
+ * How many bands a sprite of that height can possibly be cut into.
+ *
+ * A band starts at the top of the sprite or on a row of the lattice, and a
+ * sprite of height h covers ⌊h / 8⌋ of those rows plus, when its top does not
+ * land on one, its own top edge. So the bound is one more than it looks: a
+ * 32-pixel sprite takes five bands, not four. Needing more than this is a bug,
+ * not an unusual position.
+ */
+export const maxBands = (spriteHeight: number): number =>
+  Math.floor(spriteHeight / LATTICE) + 1;
+
+/**
  * The two cells that constrain one screen point.
  *
  * A screen point (X, Y) is the set of world points that project onto it — a

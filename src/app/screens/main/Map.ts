@@ -49,20 +49,22 @@ const GRAVITY = 5;
  * Side of the live block, in chunks — the square of chunks around the
  * character that is drawn as a single container. See Map.syncBlock.
  *
- * Square, and it has to be. A rectangle of chunks [s0..s1] × [e0..e1] can be
- * given one rank in the map's draw order only if every chunk outside it that
- * overlaps it on screen sorts the same way against all of the block chunks it
- * overlaps. Two chunks can only overlap when they are within one of each other
- * on both axes, and working out what that leaves gives
+ * Merging chunks means giving the whole set ONE rank where each of them had
+ * its own, and that is not always possible: a chunk left outside has to sort
+ * the same way against every block chunk it is ordered against, and the rank
+ * has to sit between the two. Written out over the block's corners, a rank
+ * exists exactly when the block's two sides differ by at most one, and it is
+ * the block's middle diagonal, s0 + e1. Being square is what makes that middle
+ * a whole number rather than a half — a 2 × 3 block would work too, at a rank
+ * of x.5. characterChunks.test.ts checks the rank against every occluding pair
+ * of cells that crosses the block's edge, rather than trusting this paragraph:
+ * an earlier version of it was wrong in both directions and the code was right
+ * anyway.
  *
- *     max(s0 + e1, s1 + e0) − 1  <  rank  <  min(s0 + e1, s1 + e0) + 1
- *
- * which has a solution only when s0 + e1 = s1 + e0, i.e. when the block is
- * square, and then the rank is that middle diagonal.
- *
- * Two chunks means the character is never closer than half a chunk to the
- * block's edge, against the two cells a constraining cell is ever away from it
- * (EntityBands.test.ts, "no cell further than two cells away constrains it").
+ * Two chunks of side means the character is never closer than half a chunk to
+ * the block's edge, against the two cells a constraining cell is ever away
+ * from it (EntityBands.test.ts, "is never constrained by a cell more than two
+ * cells away").
  */
 const BLOCK_SIDE = 2;
 
@@ -93,7 +95,6 @@ export class Map extends Container {
   private cursorMode?: "add" | "remove";
 
   public character: Character | undefined;
-  public gamepadIndex: number | undefined;
 
   /** The square of chunks around the character, drawn as one. See syncBlock. */
   private block?: { container: Container; origin: ChunkIsoCoordinates };
@@ -598,14 +599,26 @@ export class Map extends Container {
     this.syncView();
   }
 
+  /**
+   * The left stick of the first gamepad that is there, or nothing.
+   *
+   * Asked afresh every frame rather than remembered from `gamepadconnected`:
+   * the browser leaves a null in the slot once a pad is unplugged and fires no
+   * event this side can act on, so a remembered index turns into a crash on
+   * every frame of the ticker. Polling also means a pad plugged in halfway
+   * through, or a map loaded after it, just works.
+   */
   private sampleInput() {
-    if (this.gamepadIndex === undefined) {
+    // node has a navigator, but no gamepads on it
+    const gamepad = globalThis.navigator
+      ?.getGamepads?.()
+      .find((pad) => pad !== null);
+    if (!gamepad) {
       return {
         leftStickX: 0,
         leftStickY: 0,
       };
     }
-    const gamepad = navigator.getGamepads()[this.gamepadIndex]!;
     const [leftStickX, leftStickY] = gamepad.axes;
     const deadzone = 0.15;
 

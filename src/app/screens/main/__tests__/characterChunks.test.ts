@@ -51,17 +51,102 @@ const descendants = (node: Container): Container[] =>
 const characterPieces = (map: IsometricMap) =>
   descendants(map).filter((child) => child instanceof Mesh);
 
+/**
+ * Which side of the cell at the origin the cell `offset` away is on, by the
+ * interval test along the view ray (1, 1, 2).
+ */
+const occlusion = (ds: number, de: number, du: number) => {
+  const from = Math.max(ds - 1, de - 1, (du - 1) / 2);
+  const to = Math.min(ds + 1, de + 1, (du + 1) / 2);
+  if (from >= to) return "unrelated";
+  return from >= 0 ? "front" : "behind";
+};
+
+/** Every offset at which a cell hides the one at the origin. */
+const occludingOffsets = (() => {
+  const offsets: [number, number, number][] = [];
+  for (let ds = -8; ds <= 8; ds++) {
+    for (let de = -8; de <= 8; de++) {
+      for (let du = -16; du <= 16; du++) {
+        if (occlusion(ds, de, du) === "front") offsets.push([ds, de, du]);
+      }
+    }
+  }
+  return offsets;
+})();
+
 describe("the live block", () => {
   beforeAll(() => {
     vi.spyOn(console, "debug").mockImplementation(() => {});
   });
 
-  it("reclaims the chunks it walked through", () => {
+  it("is ranked so that it never contradicts a chunk left outside it", () => {
+    // What BLOCK_SIDE rests on. Merging chunks gives the whole set one rank
+    // where each had its own, so a chunk outside can end up needing to be
+    // drawn both before one block chunk and after another. Rather than trust
+    // the argument in that doc-block — which was wrong twice before it was
+    // right — take every pair of cells where one hides the other, keep the
+    // pairs that straddle the block's edge, and check the ranks agree.
+    const contradictions: string[] = [];
+    let checked = 0;
+    for (const size of [4, 8]) {
+      for (const side of [2, 3]) {
+        for (const [cs0, ce0] of [
+          [0, 0],
+          [-2, 1],
+        ]) {
+          // the rank syncBlock gives the block: its middle diagonal
+          const rank = cs0 + ce0 + side - 1;
+          const chunkOf = (v: number) => Math.floor(v / size);
+          const inBlock = (s: number, e: number) =>
+            chunkOf(s) >= cs0 &&
+            chunkOf(s) < cs0 + side &&
+            chunkOf(e) >= ce0 &&
+            chunkOf(e) < ce0 + side;
+          /** Where the cell is drawn among the map's children */
+          const rankOf = (s: number, e: number) =>
+            inBlock(s, e) ? rank : chunkOf(s) + chunkOf(e);
+
+          const from = cs0 * size - 8;
+          const to = (cs0 + side) * size + 8;
+          const fromE = ce0 * size - 8;
+          const toE = (ce0 + side) * size + 8;
+          for (let s = from; s < to; s++) {
+            for (let e = fromE; e < toE; e++) {
+              for (let u = 0; u < 24; u++) {
+                for (const [ds, de, du] of occludingOffsets) {
+                  const fs = s + ds;
+                  const fe = e + de;
+                  // only pairs the block's edge runs between: the rest is
+                  // settled inside one container, by the cells' own keys
+                  if (inBlock(s, e) === inBlock(fs, fe)) continue;
+                  checked++;
+                  if (rankOf(fs, fe) > rankOf(s, e)) continue;
+                  contradictions.push(
+                    `size ${size} side ${side} at ${cs0},${ce0}: ${fs},${fe},${u + du} hides ${s},${e},${u} but is not drawn after it`
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    expect(contradictions.slice(0, 3)).toEqual([]);
+    // it would pass just as well examining nothing at all
+    expect(checked).toBeGreaterThan(100_000);
+  });
+
+  it("never creates a chunk just by walking through it", () => {
+    // The character used to hand its pieces to whichever chunk ordered them,
+    // creating empty ones as it went and having to reclaim them. It draws in
+    // the block now, so walking must not touch the set of chunks at all.
     const map = buildHeadlessMap({
       tiles: walkway(),
       objects: {},
       characters: { "0,7.2,1": CHARACTER },
     } as MapData);
+    const before = Object.keys(map.chunks).sort();
     expect(emptyChunks(map)).toEqual([]);
 
     for (let step = 0; step <= 200; step++) {
@@ -72,6 +157,7 @@ describe("the live block", () => {
       );
       map.update(tick);
     }
+    expect(Object.keys(map.chunks).sort()).toEqual(before);
     expect(emptyChunks(map)).toEqual([]);
     map.destroy({ children: true });
   });
@@ -89,7 +175,9 @@ describe("the live block", () => {
         (total, chunk) => total + chunk.children.length,
         0
       );
-    const expected = drawn();
+    // the character's own pieces are the only thing whose count may vary
+    const cellsDrawn = () => drawn() - map.character!.bandCount;
+    const expected = cellsDrawn();
 
     for (let step = 0; step <= 200; step++) {
       map.character!.globalIsoCoordinates = new GlobalIsoCoordinates(
@@ -98,10 +186,7 @@ describe("the live block", () => {
         1
       );
       map.update(tick);
-      // the character's own pieces are the only thing whose count may vary
-      expect(drawn() - map.character!.bandCount).toBe(
-        expected - map.character!.bandCount
-      );
+      expect(cellsDrawn()).toBe(expected);
     }
     map.destroy({ children: true });
   });

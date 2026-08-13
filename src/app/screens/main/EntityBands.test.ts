@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { constrainingCells, sliceEntity } from "./EntityBands";
+import { constrainingCells, maxBands, sliceEntity } from "./EntityBands";
 import {
   GlobalIsoCoordinates,
   IsoBox,
@@ -38,6 +38,25 @@ const cellPaints = (column: number, row: number) => {
 type Mistake = { iso: string; cell: string; pixel: string; expected: string };
 
 /**
+ * Which side of the entity a cell is on: slide the cell along the view ray
+ * (1, 1, 2) and see over which range of t it overlaps the box. Reached only
+ * after t = 0 and it is in front, only before and it is behind, across 0 and
+ * they interpenetrate, never and they miss each other.
+ *
+ * The oracle below rests on this, so "the ground truth agrees with marching
+ * the ray" is what says it is right — it is the same formula the code under
+ * test uses, and a sign error in it would otherwise be mirrored in both.
+ */
+const sideOfCell = (s: number, e: number, u: number, { min, max }: IsoBox) => {
+  const from = Math.max(s - max.s, e - max.e, (u - max.u) / 2);
+  const to = Math.min(s + 1 - min.s, e + 1 - min.e, (u + 1 - min.u) / 2);
+  if (from >= to) return "unrelated";
+  if (from >= 0) return "front";
+  if (to <= 0) return "behind";
+  return "interpenetrating";
+};
+
+/**
  * Ground truth, derived from the geometry alone and never from the algorithm:
  * for every cell around the entity, which side of it the cell is on, and
  * whether the band covering each pixel that cell paints is drawn on that side.
@@ -56,16 +75,16 @@ const orderMistakes = (iso: GlobalIsoCoordinates, radius = 6): Mistake[] => {
   const originS = Math.floor(iso.s);
   const originE = Math.floor(iso.e);
   const originU = Math.floor(iso.u);
+  const box = new IsoBox(min, max);
   for (let s = originS - radius; s <= originS + radius; s++) {
     for (let e = originE - radius; e <= originE + radius; e++) {
       for (let u = originU - 2 * radius; u <= originU + 2 * radius; u++) {
         if (u < 0) continue;
-        const from = Math.max(s - max.s, e - max.e, (u - max.u) / 2);
-        const to = Math.min(s + 1 - min.s, e + 1 - min.e, (u + 1 - min.u) / 2);
+        const side = sideOfCell(s, e, u, box);
         // their silhouettes miss each other, or the entity stands in the cell,
         // which is then empty: nothing has to be ordered
-        if (from >= to || (from < 0 && to > 0)) continue;
-        const isInFront = from >= 0;
+        if (side === "unrelated" || side === "interpenetrating") continue;
+        const isInFront = side === "front";
         const key = paintersOrderKey(s, e, u);
         const cellX = 16 * (e - s);
         const cellY = 8 * (e + s) - 8 * u;
@@ -154,25 +173,75 @@ describe("sliceEntity", () => {
     }
   });
 
-  it("only ever cuts on the 8-pixel screen lattice", () => {
-    // Cells are drawn 8 pixels apart in y, so that lattice is the only place
-    // where which cell is nearest can change. This is what lets the cut be
-    // deduced from the entity's position instead of searched for.
-    for (const iso of sweep(0.02)) {
-      const { y: top, bands } = slice(iso);
-      for (const band of bands.slice(1)) {
-        expect((top + band.offsetY) % 8).toBe(0);
+  it("agrees with marching the view ray", () => {
+    // What makes the oracle above worth anything. It shares its occlusion
+    // formula with the code under test, so a sign error in it would be
+    // mirrored in both and every other test here would still pass. This one
+    // answers the same question by brute force: slide the cell along the ray
+    // in small steps and record where it actually meets the box.
+    const box = IsoBox.standingOn(
+      new GlobalIsoCoordinates(11.3, 19.7, 4),
+      HITBOX
+    );
+    const STEP = 1 / 512;
+    let checked = 0;
+    for (let s = 8; s <= 14; s++) {
+      for (let e = 17; e <= 23; e++) {
+        for (let u = 0; u <= 10; u++) {
+          let first: number | undefined;
+          let last = 0;
+          for (let t = -12; t <= 12; t += STEP) {
+            // the box slides, the cell stays: t is how far along the ray the
+            // entity has to travel to reach it, so a positive t means the cell
+            // is ahead of it
+            const meets =
+              box.min.s + t < s + 1 &&
+              box.max.s + t > s &&
+              box.min.e + t < e + 1 &&
+              box.max.e + t > e &&
+              box.min.u + 2 * t < u + 1 &&
+              box.max.u + 2 * t > u;
+            if (!meets) continue;
+            if (first === undefined) first = t;
+            last = t;
+          }
+          const marched =
+            first === undefined
+              ? "unrelated"
+              : first > 0
+                ? "front"
+                : last < 0
+                  ? "behind"
+                  : "interpenetrating";
+          // a cell whose range starts or ends within one step of zero is the
+          // sampling's own ambiguity, not a disagreement
+          if (
+            first !== undefined &&
+            (Math.abs(first) < STEP || Math.abs(last) < STEP)
+          ) {
+            continue;
+          }
+          checked++;
+          expect({
+            cell: `${s},${e},${u}`,
+            side: sideOfCell(s, e, u, box),
+          }).toEqual({
+            cell: `${s},${e},${u}`,
+            side: marched,
+          });
+        }
       }
     }
+    expect(checked).toBeGreaterThan(400);
   });
 
   it("cuts as little as the keys allow", () => {
-    // The sprite is 32px tall and a level is 8px, so it crosses at most four
-    // rows of the lattice and can never need more than four bands. In practice
-    // it needs far fewer, because each band takes the highest key its window
+    // A band starts at the top of the sprite or on a row of the lattice, so a
+    // 32px sprite can never need more than maxBands of them. In practice it
+    // needs far fewer, because each band takes the highest key its window
     // allows and so survives into the bands below.
     const counts = sweep(0.02).map((iso) => slice(iso).bands.length);
-    expect(Math.max(...counts)).toBeLessThanOrEqual(4);
+    expect(Math.max(...counts)).toBeLessThanOrEqual(maxBands(SPRITE_HEIGHT));
     const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
     // measured 1.93 here, 1.68 over a sweep that also varies the height
     expect(mean).toBeLessThan(2);
