@@ -1,4 +1,4 @@
-import { Container, Sprite, Text, Texture, Ticker } from "pixi.js";
+import { Container, Graphics, Sprite, Text, Texture, Ticker } from "pixi.js";
 import {
   ChunkIsoCoordinates,
   GlobalIsoCoordinates,
@@ -12,6 +12,7 @@ import {
   IsoString,
   LocalIsoCoordinates,
   MAP_MAX_HEIGHT,
+  paintersOrderKey,
   VisibleIsoDirection,
 } from "./IsometricCoordinate";
 import { CellContent, ChunkTileData, MapChunk } from "./MapChunk";
@@ -134,6 +135,113 @@ export const walkVelocity = (
 const BLOCK_SIDE = 2;
 
 /**
+ * How far below its feet a character still casts a shadow, in cells. Past
+ * that, a shadow says nothing useful about where it is.
+ */
+const SHADOW_REACH = 16;
+
+/** How dark the shadow is, over whatever it lands on */
+const SHADOW_ALPHA = 0.5;
+
+/** Size of a cell's top face on screen, in pixels */
+const FACE_WIDTH = 32;
+const FACE_HEIGHT = 16;
+
+/**
+ * How far down the boundaries between cells are read, in pixels, when deciding
+ * which cell owns a pixel of shadow.
+ *
+ * Tile art overflows its own faces: the top face of a grass tile is a good deal
+ * fatter than its rhombus, so the tile in front repaints a pixel or two of the
+ * one behind — which is exactly what makes the two interlock. A shadow laid
+ * down right after its own tile therefore loses that pixel, and a bright line
+ * follows every edge on the map.
+ *
+ * Reading the boundary one row lower moves the whole partition up by a pixel.
+ * It is still a partition — no cell loses a pixel and none gains one twice —
+ * but the strip along each seam now belongs to the cell in front, which is
+ * drawn last and covers it with its own art. The shadow follows.
+ */
+const SEAM = 1;
+
+/**
+ * One horizontal run of shadow pixels, in pixels from the top left of a cell's
+ * sprite.
+ */
+export type ShadowRun = { x: number; y: number; width: number };
+
+/**
+ * The point of the ground a pixel of a cell's top face stands for, in cell
+ * fractions, or nothing when the pixel belongs to another cell.
+ *
+ * The projection makes the face an affine map from whole pixels to the cell —
+ * x = 16 (de − ds) + 16 and y = 8 (de + ds) — and this is its inverse. Only the
+ * top face: a shadow falls on the ground, and the two faces the projection
+ * leaves visible are both vertical.
+ *
+ * The test is half-open, so every pixel of the map belongs to exactly one cell
+ * and none is ever darkened twice. Which cell owns a pixel is read SEAM rows
+ * below it; where the ground it stands for is, at the pixel itself. That keeps
+ * the shadow where it belongs while its seams fall on the far side of every
+ * edge.
+ */
+const groundUnderPixel = (
+  x: number,
+  y: number
+): { ds: number; de: number } | undefined => {
+  const across = (x + 0.5 - FACE_WIDTH / 2) / FACE_WIDTH;
+  const owner = (y + SEAM + 0.5) / FACE_HEIGHT;
+  if (
+    owner - across < 0 ||
+    owner - across >= 1 ||
+    owner + across < 0 ||
+    owner + across >= 1
+  ) {
+    return undefined;
+  }
+  const here = (y + 0.5) / FACE_HEIGHT;
+  return { ds: here - across, de: here + across };
+};
+
+/**
+ * The pixels a round shadow of `radius` cells centred on `centre` paints on the
+ * top face of the cell (cs, ce).
+ *
+ * The shadow is read off the ground rather than drawn over it: every pixel is
+ * asked which point of the cell it stands for, and painted when that point is
+ * under the character. That is what keeps it on the game's own grid — no smooth
+ * ellipse to betray the pixel art at any zoom — and what cuts it at the edge of
+ * a tile for nothing, since a pixel belonging to the next cell simply answers
+ * nothing here and is painted there instead, at that cell's own height.
+ */
+export const shadowRuns = (
+  cs: number,
+  ce: number,
+  centre: { s: number; e: number },
+  radius: number
+): ShadowRun[] => {
+  const runs: ShadowRun[] = [];
+  // the face, and one row above it that the seam bias hands to this cell
+  for (let y = -SEAM; y < FACE_HEIGHT; y++) {
+    let from = -1;
+    // one past the edge, so that a run touching it is closed like any other
+    for (let x = 0; x <= FACE_WIDTH; x++) {
+      const point = x < FACE_WIDTH ? groundUnderPixel(x, y) : undefined;
+      const offS = point ? cs + point.ds - centre.s : 0;
+      const offE = point ? ce + point.de - centre.e : 0;
+      const shadowed =
+        point !== undefined && offS * offS + offE * offE <= radius * radius;
+      if (shadowed && from < 0) from = x;
+      if (!shadowed && from >= 0) {
+        runs.push({ x: from, y, width: x - from });
+        from = -1;
+      }
+    }
+  }
+  return runs;
+};
+
+/**
  * The map, as a collection of chunks.
  *
  * Chunks are vertical columns (chunksSize × chunksSize × MAP_MAX_HEIGHT):
@@ -163,6 +271,11 @@ export class Map extends Container {
 
   /** The square of chunks around the character, drawn as one. See syncBlock. */
   private block?: { container: Container; origin: ChunkIsoCoordinates };
+
+  /** The shadow under the character, one piece per ground cell. syncShadow. */
+  private shadowPieces: Graphics[] = [];
+  /** What each piece above holds, so that it is drawn only when it moves */
+  private shadowShapes: string[] = [];
 
   private velocity = new IsoCoordinates(0, 0, 0);
   /** Whether A was already down last frame, so a hold is not a second jump */
@@ -861,6 +974,128 @@ export class Map extends Container {
   }
 
   /**
+   * The highest solid cell strictly below the level `u` in the column (s, e),
+   * or nothing within SHADOW_REACH.
+   *
+   * One column, not the character's whole footprint: what the shadow needs is
+   * the ground under each cell it covers separately, since two of them can be
+   * at different heights.
+   */
+  private groundUnder(s: number, e: number, u: number): number | undefined {
+    const below = Math.floor(u) - 1;
+    for (
+      let level = below;
+      level > below - SHADOW_REACH && level >= 0;
+      level--
+    ) {
+      if (this.isSolidAt(new GlobalIsoCoordinates(s, e, level))) return level;
+    }
+    return undefined;
+  }
+
+  /**
+   * Keep the character's shadow on the ground below it.
+   *
+   * A shadow is the only thing that says how high a character is: without one,
+   * jumping and walking up a slope look exactly alike, and a character in
+   * mid-air is indistinguishable from one standing on a cell further back.
+   *
+   * It is painted one ground cell at a time, each piece a quarter above the
+   * cell it lies on. One key for the whole shadow does not work, however much
+   * simpler it looks: it lifts the pieces that lie on cells behind — the ones a
+   * character standing on an edge drops into the hole beside it — over the tile
+   * and over the character that ought to hide them. Keeping every piece with
+   * its own cell is what keeps the depth order honest; the seams between them
+   * are closed by the SEAM bias instead.
+   */
+  private syncShadow(block: Container, character: Character) {
+    const iso = character.globalIsoCoordinates;
+    // The disc inside the footprint, and not the one around it: it keeps the
+    // shadow within the cells the hitbox itself covers, and those can never be
+    // in front of the character along the view ray. A wider shadow reaches the
+    // cell in front, which is drawn after the character — and a few dark
+    // pixels land on its feet.
+    const radius = Math.min(character.hitbox.s, character.hitbox.e) / 2;
+    // On whole pixels, like the sprite it belongs to (EntityBands.placeSprite):
+    // a shadow that slid by fractions of a pixel under a sprite that snaps
+    // would shimmer, and would have to be rasterized again every single frame.
+    // The projection is what is rounded — x moves a pixel per 1/16 of a cell
+    // of (e − s), y per 1/8 of a cell of (e + s) — and inverted back.
+    const across = Math.round(16 * (iso.e - iso.s)) / 16;
+    const along = Math.round(8 * (iso.e + iso.s)) / 8;
+    const centre = {
+      s: (along - across) / 2 + 0.5,
+      e: (along + across) / 2 + 0.5,
+    };
+
+    let used = 0;
+    for (
+      let cs = Math.floor(centre.s - radius);
+      cs <= Math.floor(centre.s + radius);
+      cs++
+    ) {
+      for (
+        let ce = Math.floor(centre.e - radius);
+        ce <= Math.floor(centre.e + radius);
+        ce++
+      ) {
+        const ground = this.groundUnder(cs, ce, iso.u);
+        if (ground === undefined) continue;
+        const runs = shadowRuns(cs, ce, centre, radius);
+        if (runs.length === 0) continue;
+        // Over the cell it lies on, under the character standing above it. A
+        // quarter and not a half: half is what a character's own bands take
+        // when they sit just above a cell (EntityBands), and the shadow has to
+        // stay under its character rather than tie with it.
+        this.paintShadow(used++, block, runs, {
+          at: new GlobalIsoCoordinates(cs, ce, ground).toXY(),
+          zIndex: paintersOrderKey(cs, ce, ground) + 0.25,
+        });
+      }
+    }
+    this.clearShadowPiecesFrom(used);
+  }
+
+  /**
+   * Fill one pooled piece of shadow with `runs`, and only when they changed.
+   *
+   * The guard is not an optimisation, it is what makes the shadow affordable:
+   * Pixi rebuilds the draw instructions of a whole render group as soon as one
+   * Graphics in it reports a change, and GraphicsPipe.validateRenderable
+   * reports one for anything batchable without looking at what actually
+   * changed. Redrawing an unmoved shadow would therefore cost the live block's
+   * entire instruction set, every frame, standing still included.
+   */
+  private paintShadow(
+    index: number,
+    block: Container,
+    runs: ShadowRun[],
+    where: { at: { x: number; y: number }; zIndex: number }
+  ) {
+    const piece = (this.shadowPieces[index] ??= new Graphics({
+      eventMode: "none",
+    }));
+    if (piece.parent !== block) block.addChild(piece);
+    piece.x = where.at.x;
+    piece.y = where.at.y;
+    piece.zIndex = where.zIndex;
+    const shape = runs.map((run) => `${run.x},${run.y},${run.width}`).join(";");
+    if (this.shadowShapes[index] === shape) return;
+    this.shadowShapes[index] = shape;
+    piece.clear();
+    for (const run of runs) piece.rect(run.x, run.y, run.width, 1);
+    piece.fill({ color: 0x000000, alpha: SHADOW_ALPHA });
+  }
+
+  private clearShadowPiecesFrom(index: number) {
+    for (let spare = index; spare < this.shadowPieces.length; spare++) {
+      if (this.shadowShapes[spare] === "") continue;
+      this.shadowShapes[spare] = "";
+      this.shadowPieces[spare].clear();
+    }
+  }
+
+  /**
    * A character straddles cells, so it cannot be a single sprite with a single
    * depth key: it is cut into horizontal bands, each drawn at the key its rows
    * need. They all go into the live block, whose cells are sorted by that same
@@ -870,9 +1105,11 @@ export class Map extends Container {
     const character = this.character;
     if (!character) {
       this.dissolveBlock();
+      this.clearShadowPiecesFrom(0);
       return;
     }
     const block = this.syncBlock(character.globalIsoCoordinates);
+    this.syncShadow(block, character);
     if (character.needsSlicing) {
       character.setSlices(
         sliceEntity({
@@ -1017,6 +1254,9 @@ export class Map extends Container {
 
   public destroy(options?: { children?: boolean; texture?: boolean }) {
     this.character?.destroy();
+    // they live in the block, which is dissolved without destroying what it
+    // was only ever lent
+    for (const piece of this.shadowPieces) piece.destroy();
     // before the chunks: they take their views back from it
     this.dissolveBlock();
     this.cursorSprites.up.destroy();

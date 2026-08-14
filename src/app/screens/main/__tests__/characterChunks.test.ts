@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { Container, Mesh, Ticker } from "pixi.js";
+import { Container, Graphics, Mesh, Ticker } from "pixi.js";
 import { buildHeadlessMap } from "./composeMapImage";
 import { Map as IsometricMap, MapData } from "../Map";
 import { GlobalIsoCoordinates } from "../IsometricCoordinate";
@@ -169,14 +169,20 @@ describe("the live block", () => {
       characters: { "0,7.2,1": CHARACTER },
     } as MapData);
     map.update(tick);
-    const drawn = () =>
-      descendants(map).filter((child) => child.parent === blockOf(map)).length +
+    // Everything the map draws that is a cell. The character's bands (meshes)
+    // and its shadow (graphics) are the two things whose count varies as it
+    // walks, and neither of them is a cell.
+    const cellsDrawn = () =>
+      descendants(map).filter(
+        (child) =>
+          child.parent === blockOf(map) &&
+          !(child instanceof Mesh) &&
+          !(child instanceof Graphics)
+      ).length +
       Object.values(map.chunks).reduce(
         (total, chunk) => total + chunk.children.length,
         0
       );
-    // the character's own pieces are the only thing whose count may vary
-    const cellsDrawn = () => drawn() - map.character!.bandCount;
     const expected = cellsDrawn();
 
     for (let step = 0; step <= 200; step++) {

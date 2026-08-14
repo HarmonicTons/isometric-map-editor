@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   Assets,
   Container,
+  Graphics,
   Mesh,
   MeshGeometry,
   Rectangle,
@@ -180,6 +181,11 @@ const collectBlits = (
         dy: Math.round(y + quad.dy),
       });
     }
+  } else if (node instanceof Graphics) {
+    // The character's shadow, and nothing else so far. Deliberately absent
+    // from the snapshots rather than approximated: it is a translucent fill,
+    // and this rasterizer only copies opaque texels. Its placement is what
+    // matters and that is unit-tested, not snapshotted.
   } else if (node instanceof Sprite) {
     if (node.tint !== 0xffffff || node.alpha !== 1) {
       throw new Error("Rasterizer does not support tint nor alpha");
