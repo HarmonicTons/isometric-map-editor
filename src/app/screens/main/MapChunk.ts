@@ -35,6 +35,15 @@ export type CellContent = TileType | Tile | MapObject;
 export class MapChunk extends Container {
   public cells: Record<IsoString, CellContent> = {};
 
+  /**
+   * The highest level this chunk has ever held a cell at.
+   *
+   * A high-water mark, never lowered: it only ever bounds a search upward
+   * through a column (Map.isOvershadowed), so an emptied tower costs a few
+   * wasted lookups and never a wrong answer.
+   */
+  public highestLevel = -1;
+
   /** Container the views below are drawn in: this chunk, or the live block. */
   private viewHost: Container = this;
   /**
@@ -50,6 +59,7 @@ export class MapChunk extends Container {
     private getTileTypeByGlobalCoordinates: (
       iso: GlobalIsoCoordinates
     ) => TileType | undefined,
+    private isOvershadowed: (iso: GlobalIsoCoordinates) => boolean,
     public readonly chunkIsoCoordinates: ChunkIsoCoordinates
   ) {
     super();
@@ -77,6 +87,10 @@ export class MapChunk extends Container {
         continue;
       }
       this.cells[key] = type;
+      this.highestLevel = Math.max(
+        this.highestLevel,
+        LocalIsoCoordinates.fromString(key).u
+      );
     }
   }
 
@@ -151,10 +165,12 @@ export class MapChunk extends Container {
     skipFragmentsSetup = false
   ): Tile {
     this.assertInside(iso);
+    this.highestLevel = Math.max(this.highestLevel, iso.u);
     const globalIso = this.toGlobalIsoCoordinates(iso);
     const tile = new Tile({
       type,
       getTileTypeAt: this.getTileTypeByGlobalCoordinates,
+      isOvershadowed: this.isOvershadowed,
       localIsoCoordinates: iso,
       globalIsoCoordinates: globalIso,
       tileFragmentsTextures: this.tileFragmentsTextures,
@@ -206,6 +222,7 @@ export class MapChunk extends Container {
     type: MapObjectType
   ): MapObject {
     this.assertInside(iso);
+    this.highestLevel = Math.max(this.highestLevel, iso.u + 1);
     const globalIso = this.toGlobalIsoCoordinates(iso);
     const mapObject = new MapObject({
       type,

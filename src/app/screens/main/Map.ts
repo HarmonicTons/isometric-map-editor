@@ -22,6 +22,7 @@ import { TileFragmentsTextures } from "./TileFragmentsTextures";
 import { Character, CharacterType } from "./Character";
 import { sliceEntity } from "./EntityBands";
 import { debugViewEnabled } from "./DebugView";
+import { paintRuns, ShadowRun, shadowRuns } from "./Shadows";
 
 export type MapData = {
   objects: Record<string, string>;
@@ -140,106 +141,12 @@ const BLOCK_SIDE = 2;
  */
 const SHADOW_REACH = 16;
 
-/** How dark the shadow is, over whatever it lands on */
-const SHADOW_ALPHA = 0.5;
-
-/** Size of a cell's top face on screen, in pixels */
-const FACE_WIDTH = 32;
-const FACE_HEIGHT = 16;
-
 /**
- * How far down the boundaries between cells are read, in pixels, when deciding
- * which cell owns a pixel of shadow.
- *
- * Tile art overflows its own faces: the top face of a grass tile is a good deal
- * fatter than its rhombus, so the tile in front repaints a pixel or two of the
- * one behind — which is exactly what makes the two interlock. A shadow laid
- * down right after its own tile therefore loses that pixel, and a bright line
- * follows every edge on the map.
- *
- * Reading the boundary one row lower moves the whole partition up by a pixel.
- * It is still a partition — no cell loses a pixel and none gains one twice —
- * but the strip along each seam now belongs to the cell in front, which is
- * drawn last and covers it with its own art. The shadow follows.
+ * How far above a cell something has to float before it darkens its top face,
+ * in cells. One empty level between them: a tile resting on another casts
+ * nothing, there is nowhere for the shadow to fall.
  */
-const SEAM = 1;
-
-/**
- * One horizontal run of shadow pixels, in pixels from the top left of a cell's
- * sprite.
- */
-export type ShadowRun = { x: number; y: number; width: number };
-
-/**
- * The point of the ground a pixel of a cell's top face stands for, in cell
- * fractions, or nothing when the pixel belongs to another cell.
- *
- * The projection makes the face an affine map from whole pixels to the cell —
- * x = 16 (de − ds) + 16 and y = 8 (de + ds) — and this is its inverse. Only the
- * top face: a shadow falls on the ground, and the two faces the projection
- * leaves visible are both vertical.
- *
- * The test is half-open, so every pixel of the map belongs to exactly one cell
- * and none is ever darkened twice. Which cell owns a pixel is read SEAM rows
- * below it; where the ground it stands for is, at the pixel itself. That keeps
- * the shadow where it belongs while its seams fall on the far side of every
- * edge.
- */
-const groundUnderPixel = (
-  x: number,
-  y: number
-): { ds: number; de: number } | undefined => {
-  const across = (x + 0.5 - FACE_WIDTH / 2) / FACE_WIDTH;
-  const owner = (y + SEAM + 0.5) / FACE_HEIGHT;
-  if (
-    owner - across < 0 ||
-    owner - across >= 1 ||
-    owner + across < 0 ||
-    owner + across >= 1
-  ) {
-    return undefined;
-  }
-  const here = (y + 0.5) / FACE_HEIGHT;
-  return { ds: here - across, de: here + across };
-};
-
-/**
- * The pixels a round shadow of `radius` cells centred on `centre` paints on the
- * top face of the cell (cs, ce).
- *
- * The shadow is read off the ground rather than drawn over it: every pixel is
- * asked which point of the cell it stands for, and painted when that point is
- * under the character. That is what keeps it on the game's own grid — no smooth
- * ellipse to betray the pixel art at any zoom — and what cuts it at the edge of
- * a tile for nothing, since a pixel belonging to the next cell simply answers
- * nothing here and is painted there instead, at that cell's own height.
- */
-export const shadowRuns = (
-  cs: number,
-  ce: number,
-  centre: { s: number; e: number },
-  radius: number
-): ShadowRun[] => {
-  const runs: ShadowRun[] = [];
-  // the face, and one row above it that the seam bias hands to this cell
-  for (let y = -SEAM; y < FACE_HEIGHT; y++) {
-    let from = -1;
-    // one past the edge, so that a run touching it is closed like any other
-    for (let x = 0; x <= FACE_WIDTH; x++) {
-      const point = x < FACE_WIDTH ? groundUnderPixel(x, y) : undefined;
-      const offS = point ? cs + point.ds - centre.s : 0;
-      const offE = point ? ce + point.de - centre.e : 0;
-      const shadowed =
-        point !== undefined && offS * offS + offE * offE <= radius * radius;
-      if (shadowed && from < 0) from = x;
-      if (!shadowed && from >= 0) {
-        runs.push({ x: from, y, width: x - from });
-        from = -1;
-      }
-    }
-  }
-  return runs;
-};
+const OVERHANG_GAP = 2;
 
 /**
  * The map, as a collection of chunks.
@@ -438,6 +345,28 @@ export class Map extends Container {
     );
   }
 
+  /**
+   * Whether something floating in this column darkens the top face of `iso`.
+   *
+   * The light comes straight down, so what casts is whatever stands in the same
+   * column with at least one empty level in between: an overhang, a bridge, a
+   * ceiling. No limit on how high it is — a shadow does not fade with distance
+   * here any more than a character's does.
+   *
+   * The search stops at the highest cell the chunk has ever held, which is what
+   * keeps this from walking to MAP_MAX_HEIGHT over every tile of a flat map.
+   */
+  public isOvershadowed(iso: GlobalIsoCoordinates): boolean {
+    // a face with something resting on it is not a face at all
+    if (this.isSolidAt(iso.move("up"))) return false;
+    const ceiling = this.getChunkAt(iso)?.highestLevel ?? -1;
+    for (let u = iso.u + OVERHANG_GAP; u <= ceiling; u++) {
+      if (this.isSolidAt(new GlobalIsoCoordinates(iso.s, iso.e, u)))
+        return true;
+    }
+    return false;
+  }
+
   public addTileAt(iso: GlobalIsoCoordinates, type: TileType) {
     console.debug(`Adding tile at ${iso.toString()}`);
     if (!this.isInsideHeightBounds(iso)) {
@@ -524,6 +453,21 @@ export class Map extends Container {
     this.refreshTileAt(iso.move("down").move("down"));
     this.refreshTileAt(iso.move("down").move("south"));
     this.refreshTileAt(iso.move("down").move("east"));
+    this.refreshColumnBelow(iso);
+  }
+
+  /**
+   * Refresh every cell of the column below `iso`.
+   *
+   * What floats over a cell can be at any height at all — that is the whole
+   * point of isOvershadowed — so putting a tile down changes what is shaded all
+   * the way to the floor, far past any neighbourhood. Only an edit pays for
+   * this walk; loading a map shades every tile in one pass instead.
+   */
+  private refreshColumnBelow(iso: GlobalIsoCoordinates) {
+    for (let u = iso.u - 1; u >= 0; u--) {
+      this.refreshTileAt(new GlobalIsoCoordinates(iso.s, iso.e, u));
+    }
   }
 
   private refreshTileAt(iso: GlobalIsoCoordinates) {
@@ -563,6 +507,7 @@ export class Map extends Container {
       chunkTileData,
       this.tileFragmentsTextures,
       (iso) => this.getTileTypeAt(iso),
+      (iso) => this.isOvershadowed(iso),
       chunkIso
     );
     // Columns have no u dimension: depth order between chunks is their diagonal
@@ -1082,9 +1027,7 @@ export class Map extends Container {
     const shape = runs.map((run) => `${run.x},${run.y},${run.width}`).join(";");
     if (this.shadowShapes[index] === shape) return;
     this.shadowShapes[index] = shape;
-    piece.clear();
-    for (const run of runs) piece.rect(run.x, run.y, run.width, 1);
-    piece.fill({ color: 0x000000, alpha: SHADOW_ALPHA });
+    paintRuns(piece, runs);
   }
 
   private clearShadowPiecesFrom(index: number) {

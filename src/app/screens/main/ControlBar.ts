@@ -127,6 +127,8 @@ export class ControlBar extends Container {
           globalIsoCoordinates,
           type,
           getTileTypeAt: () => undefined,
+          // a button, not a place on the map: nothing floats over it
+          isOvershadowed: () => false,
           tileFragmentsTextures,
           chunk: undefined as unknown as MapChunk,
         }),

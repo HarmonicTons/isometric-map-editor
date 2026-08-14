@@ -1,83 +1,83 @@
 {
   "frames": {
-    "005-reptincel_m-s1.png": {
+    "cube_m-s1.png": {
       "frame": { "x": 0, "y": 0, "w": 32, "h": 32 },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
       "sourceSize": { "w": 32, "h": 32 }
     },
-    "005-reptincel_m-s2.png": {
+    "cube_m-s2.png": {
       "frame": { "x": 32, "y": 0, "w": 32, "h": 32 },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
       "sourceSize": { "w": 32, "h": 32 }
     },
-    "005-reptincel_m-s3.png": {
+    "cube_m-s3.png": {
       "frame": { "x": 64, "y": 0, "w": 32, "h": 32 },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
       "sourceSize": { "w": 32, "h": 32 }
     },
-    "005-reptincel_m-e1.png": {
+    "cube_m-e1.png": {
       "frame": { "x": 0, "y": 32, "w": 32, "h": 32 },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
       "sourceSize": { "w": 32, "h": 32 }
     },
-    "005-reptincel_m-e2.png": {
+    "cube_m-e2.png": {
       "frame": { "x": 32, "y": 32, "w": 32, "h": 32 },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
       "sourceSize": { "w": 32, "h": 32 }
     },
-    "005-reptincel_m-e3.png": {
+    "cube_m-e3.png": {
       "frame": { "x": 64, "y": 32, "w": 32, "h": 32 },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
       "sourceSize": { "w": 32, "h": 32 }
     },
-    "005-reptincel_m-w1.png": {
+    "cube_m-w1.png": {
       "frame": { "x": 0, "y": 64, "w": 32, "h": 32 },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
       "sourceSize": { "w": 32, "h": 32 }
     },
-    "005-reptincel_m-w2.png": {
+    "cube_m-w2.png": {
       "frame": { "x": 32, "y": 64, "w": 32, "h": 32 },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
       "sourceSize": { "w": 32, "h": 32 }
     },
-    "005-reptincel_m-w3.png": {
+    "cube_m-w3.png": {
       "frame": { "x": 64, "y": 64, "w": 32, "h": 32 },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
       "sourceSize": { "w": 32, "h": 32 }
     },
-    "005-reptincel_m-n1.png": {
+    "cube_m-n1.png": {
       "frame": { "x": 0, "y": 96, "w": 32, "h": 32 },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
       "sourceSize": { "w": 32, "h": 32 }
     },
-    "005-reptincel_m-n2.png": {
+    "cube_m-n2.png": {
       "frame": { "x": 32, "y": 96, "w": 32, "h": 32 },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": { "x": 0, "y": 0, "w": 32, "h": 32 },
       "sourceSize": { "w": 32, "h": 32 }
     },
-    "005-reptincel_m-n3.png": {
+    "cube_m-n3.png": {
       "frame": { "x": 64, "y": 96, "w": 32, "h": 32 },
       "rotated": false,
       "trimmed": false,
@@ -86,7 +86,7 @@
     }
   },
   "meta": {
-    "image": "005-reptincel_m.png",
+    "image": "cube.png",
     "format": "RGBA8888",
     "size": { "w": 96, "h": 128 },
     "scale": "1"

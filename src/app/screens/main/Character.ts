@@ -35,7 +35,8 @@ const directionKey: Record<CharacterDirection, string> = {
  */
 const CHARACTER_HITBOX: Record<string, IsoCoordinates> = {
   default: new IsoCoordinates(0.8, 0.8, 1.9),
-  "005-reptincel": new IsoCoordinates(0.8, 0.8, 1.9),
+  "cube": new IsoCoordinates(0.99, 0.99, 2),
+  "005-reptincel": new IsoCoordinates(0.6, 0.6, 1.9),
   "095-onix": new IsoCoordinates(1.8, 1.8, 3.9),
 };
 
