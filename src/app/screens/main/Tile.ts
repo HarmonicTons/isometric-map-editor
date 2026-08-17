@@ -107,14 +107,12 @@ export class Tile extends Container {
   /**
    * Darken the whole top face when something floats over this tile.
    *
-   * A child of the tile rather than a display object of its own, which is the
-   * whole reason this is cheap: it inherits the tile's place in the draw order
-   * and is added last, so it lands on the tile's own art and on nothing else.
-   * No key to invent, nothing to sort, nothing to keep in step.
+   * A child of the tile rather than a display object of its own: it inherits
+   * the tile's place in the draw order and is added last, so it lands on the
+   * tile's own art and on nothing else. No key to invent, nothing to sort.
    *
    * The pixels are the ones the top face owns — the same partition a
-   * character's shadow is read through, seam bias included, so the two never
-   * disagree about where a tile ends.
+   * character's shadow is read through, seam bias included.
    */
   private setShade() {
     if (this.fragments === 0) return;

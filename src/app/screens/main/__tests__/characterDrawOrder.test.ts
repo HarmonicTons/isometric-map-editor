@@ -6,11 +6,10 @@ import { MapData } from "../Map";
 /**
  * End-to-end depth order of a character, asserted on rendered pixels only.
  *
- * EntityColumns has its own exhaustive test, but it can only check the cut
- * against its own idea of what a tile's zIndex is. This one goes through the
- * real Map and MapChunk instead, and never looks at a key: it renders the same
- * scene with and without the character and asks who won on the pixels they
- * both want. That is what catches the two halves drifting apart.
+ * EntityColumns has its own exhaustive test, but it checks the cut against its
+ * own idea of a tile's zIndex. This one goes through the real Map and MapChunk
+ * and never looks at a key: it renders the same scene with and without the
+ * character and asks who won on the pixels both want.
  */
 
 /** The character straddles the chunk boundary at s = 8 */

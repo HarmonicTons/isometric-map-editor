@@ -168,16 +168,14 @@ type Verdict = "after" | "before" | "offSprite" | "offCell" | "onTheEdge";
  * cell's surface nearer to the camera than the entity's, right here?
  *
  * A pixel is a square, so the question is asked at its four corners and only
- * answered when all four agree. Three things it will not answer, each counted
- * on its own rather than judged:
+ * answered when all four agree. Three things it will not answer, counted rather
+ * than judged:
  *
- * - offSprite: the ray misses the hitbox, so the sprite is drawing something
- *   the box does not contain. No geometry can settle those — it is the price of
- *   a sprite wider and taller than what it collides with, and both cuts pay it.
- * - offCell: the pixel straddles the cell's own edge. The artwork rasterises
- *   generously there, the geometry does not reach that far.
- * - onTheEdge: the two surfaces cross inside the pixel, where either order is
- *   defensible at this resolution.
+ * - offSprite: the ray misses the hitbox, so the sprite draws something the box
+ *   does not contain — the price of a sprite bigger than what it collides with.
+ * - offCell: the pixel straddles the cell's own edge, where the artwork
+ *   rasterises more generously than the geometry reaches.
+ * - onTheEdge: the two surfaces cross inside the pixel, either order defensible.
  */
 const verdictAt = (
   left: number,
@@ -229,14 +227,12 @@ const emptyTally = (cuts = 1): Tally => ({
 /**
  * Every (pixel, cell) pair around the entity, weighed against the truth above.
  *
- * Ground truth per pixel, and not per cell: asking that a cell in front of the
- * *box* be drawn over every pixel it paints would be too strong. A ledge can be
- * in front of the far corner of the hitbox and behind the near one, and a cut by
- * column is entitled to say so.
+ * Ground truth per pixel, not per cell: asking that a cell in front of the *box*
+ * be drawn over every pixel it paints would be too strong, since a ledge can be
+ * in front of the far corner of the hitbox and behind the near one.
  *
- * Several variants of the key can be weighed in one pass, which is what lets it
- * record not only whether each is right but where they disagree at all — the
- * only pairs on which a comparison between them carries any information.
+ * Several variants of the key can be weighed in one pass, which records not only
+ * whether each is right but where they disagree at all.
  */
 const weigh = (
   subject: Subject,
@@ -332,14 +328,12 @@ type PairTally = {
 /**
  * Two entities against each other, pixel by pixel.
  *
- * Same ground truth as the oracle above — which surface the ray reaches first —
- * with the second entity's box in place of a cell. What it settles is the only
- * thing a key can be wrong about between two of them: on the pixels where both
- * sprites are drawn and the geometry has an opinion, does the key agree.
+ * Same ground truth as the oracle above, with the second entity's box in place
+ * of a cell: on the pixels where both sprites are drawn and the geometry has an
+ * opinion, does the key agree.
  *
- * A tie is counted apart from a mistake. It is not one: it is worse, because it
- * is not even wrong in a way the order could be relied on, and it is exactly
- * what a flat half gives.
+ * A tie is counted apart from a mistake. It is worse than one — not even wrong
+ * in a way the order could be relied on — and it is what a flat half gives.
  */
 const weighPair = (
   subject: Subject,
@@ -448,11 +442,10 @@ describe("sliceEntityByColumn", () => {
   });
 
   it("gives each piece at most one run per row of the sprite", () => {
-    // What lets a renderer size a piece's buffers once and never resize them,
-    // which is not a nicety: Pixi rebuilds a render group's whole instruction
-    // set when a mesh's vertex count changes. It holds because along a row the
-    // point the sprite shows only moves one way — s never grows, e never
-    // shrinks — so a column, once left, is never returned to.
+    // What lets a renderer size a piece's buffers once and never resize them
+    // (Pixi rebuilds a render group when a mesh's vertex count changes). It
+    // holds because along a row the point the sprite shows only moves one way,
+    // so a column, once left, is never returned to.
     for (const subject of [CHARACTER, GIANT]) {
       for (const iso of sweep(0.1)) {
         for (const piece of byColumn(subject, iso).pieces) {
@@ -504,12 +497,10 @@ describe("sliceEntityByColumn", () => {
 
   it("depends on where the entity stands inside its cell, not on which cell", () => {
     // Moving by whole cells shifts every key by that move's own key and leaves
-    // the pieces where they are — as long as the sprite itself lands on the
-    // same pixel. It does not always: placeSprite rounds x + 16 - width / 2 to
-    // whole pixels, and a position whose e - s is a whole number puts that
-    // exactly on a half, where a 1e-15 of float noise decides which way it
-    // goes. That wobble is placeSprite's own and not the cut's — but the cut is
-    // fine enough to show it, so it is measured here rather than swept up.
+    // the pieces where they are — as long as the sprite lands on the same
+    // pixel. It does not always: placeSprite rounds x + 16 - width / 2, and a
+    // position whose e - s is whole puts that exactly on a half, where float
+    // noise decides. That wobble is placeSprite's, not the cut's.
     let moved = 0;
     let compared = 0;
     for (let a = 0; a < 12; a++) {
@@ -542,10 +533,9 @@ describe("sliceEntityByColumn", () => {
             here.pieces.map((piece) => piece.runs)
           );
           there.pieces.forEach((piece, index) => {
-            // Not to the last bit: the key carries a fraction under a whole
-            // part of some thousands, and moving forty cells away spends a few
-            // of the digits the fraction was using. Nine decimals is far finer
-            // than anything two entities in one cell can differ by.
+            // Not to the last bit: the fraction sits under a whole part of some
+            // thousands, and moving forty cells away spends a few of its
+            // digits. Nine decimals is finer than two entities ever differ by.
             expect(piece.zIndex - offset).toBeCloseTo(
               here.pieces[index].zIndex,
               9
@@ -653,9 +643,8 @@ describe("where the sprite is placed", () => {
   });
 
   it("drops the sprite a level for every cell of footprint it gains", () => {
-    // The bug this is here for: an anchor hard-coded for a one cell footprint
-    // left cube-large — the same art as cube-medium at twice the size — hanging
-    // a whole level above the ground, while cube-medium sat correctly.
+    // An anchor hard-coded for a one cell footprint leaves anything wider
+    // hanging a whole level above the ground.
     const bottomOf = (subject: Subject) =>
       byColumn(subject, iso).y + subject.spriteHeight;
     expect(bottomOf(CUBE_LARGE) - bottomOf(CUBE_MEDIUM)).toBe(8);
@@ -700,10 +689,10 @@ describe("two entities sharing a column", () => {
   };
 
   it("spreads the sub-cell key over the whole approach to a column", () => {
-    // What the key owes a reader as well as a sort: it rises steadily as the
-    // entity walks up on a column, rather than sitting on 0 and flipping to 1
-    // in the sixth of a pixel where the two are level. Both are correct orders;
-    // only one of them survives being added to a key of several thousand.
+    // The key owes a reader as well as a sort: it rises steadily as the entity
+    // walks up a column, rather than sitting on 0 and flipping to 1 in the sixth
+    // of a pixel where the two are level. Both order correctly; only one
+    // survives being added to a key of several thousand.
     // right across the cell the column is keyed on, from behind it to past it
     const keys: number[] = [];
     for (let step = 0; step <= 16; step++) {
@@ -753,21 +742,12 @@ describe("the cut, measured", () => {
     expect(report.mistakes).toBe(0);
   });
 
-  it("is never constrained by a cell more than two cells away", () => {
-    // What decides how wide the container that keeps the order exact has to be.
-    // A cell that lands between two of the entity's keys AND meets it on screen
-    // has to be drawn alongside it, so it can never be left in a chunk of its
-    // own. Map.BLOCK_SIDE is sized against this number.
-    //
-    // Two rather than the one the entity's own footprint suggests: a piece
-    // takes a key a fraction ABOVE its column, so a cell on the diagonal beyond
-    // the last column still slips underneath it. It cannot reach that piece's
-    // pixels — the two columns share no screen strip — but this counts it, and
-    // counting it is the safe way round.
+  /** How far a cell that must be drawn alongside `subject` can be, in cells */
+  const constrainingReach = (subject: Subject) => {
     let furthest = 0;
     for (const iso of sweep(1 / 12)) {
-      const box = IsoBox.standingOn(iso, CHARACTER.hitbox);
-      const keys = byColumn(CHARACTER, iso).pieces.map((piece) => piece.zIndex);
+      const box = IsoBox.standingOn(iso, subject.hitbox);
+      const keys = byColumn(subject, iso).pieces.map((piece) => piece.zIndex);
       const lowest = Math.min(...keys);
       const highest = Math.max(...keys);
       for (let s = Math.floor(iso.s) - 6; s <= Math.floor(iso.s) + 6; s++) {
@@ -787,6 +767,20 @@ describe("the cut, measured", () => {
         }
       }
     }
-    expect(furthest).toBe(2);
+    return furthest;
+  };
+
+  it("is never constrained by a cell more than three cells away", () => {
+    // What Map.BLOCK_SIDE is sized against: a cell landing between two of the
+    // entity's keys AND meeting it on screen has to be drawn alongside it, so
+    // it can never be left in a chunk of its own. The block guarantees four,
+    // so the headroom is one cell — measured on the LARGEST entity, since the
+    // reach grows with the footprint and the block is sized once for all.
+    //
+    // More than the footprint suggests, because a piece takes a key a fraction
+    // ABOVE its column: a cell on the diagonal beyond the last column still
+    // slips underneath it. Counting it is the safe way round.
+    expect(constrainingReach(CHARACTER)).toBe(2);
+    expect(constrainingReach(GIANT)).toBe(3);
   });
 });

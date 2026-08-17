@@ -26,11 +26,10 @@ export type CellContent = TileType | Tile | MapObject;
  * A chunk only knows its own local domain.
  * Anything that may cross a chunk boundary must go through Map
  *
- * It is also the container its cells are drawn in — which is what makes a
- * chunk atomic in the draw order, and one day bakeable into a single texture.
- * Not always, though: while it is part of the live block around a character it
- * lends its views to it, so that they can interleave with the character's own.
- * See Map.syncBlock.
+ * It is also the container its cells are drawn in, which makes a chunk atomic
+ * in the draw order — except while it is part of the live block around a
+ * character, where it lends its views out so they can interleave with the
+ * character's own. See Map.syncBlock.
  */
 export class MapChunk extends Container {
   public cells: Record<IsoString, CellContent> = {};
@@ -65,13 +64,11 @@ export class MapChunk extends Container {
     super();
     this.eventMode = "none";
     this.sortableChildren = true;
-    // Pixi caches the draw instructions of a render group and only rebuilds
-    // them when its structure changes — a zIndex, a visibility, a child added.
-    // Without a boundary the whole map is one group, so moving the character
-    // one pixel rebuilds every cell of it: measured at 170 000 display objects
-    // on a 128×128×16 map, which is what a 140 → 30 fps drop looks like. A
-    // chunk is already atomic in the draw order, so drawing it as its own pass
-    // costs nothing and contains the rebuild to what actually moved.
+    // Pixi rebuilds a render group's draw instructions when its structure
+    // changes. Without a boundary the whole map is one group, so moving the
+    // character one pixel rebuilds every cell of it — 170 000 display objects
+    // on a 128×128×16 map, a 140 → 30 fps drop. A chunk is already atomic in
+    // the draw order, so its own pass costs nothing and contains the rebuild.
     this.isRenderGroup = true;
     // Tiles are loaded as bare data: materialization of the shell happens in
     // the map-wide pass, once every chunk's data is available
@@ -222,7 +219,6 @@ export class MapChunk extends Container {
     type: MapObjectType
   ): MapObject {
     this.assertInside(iso);
-    this.highestLevel = Math.max(this.highestLevel, iso.u + 1);
     const globalIso = this.toGlobalIsoCoordinates(iso);
     const mapObject = new MapObject({
       type,
@@ -235,11 +231,17 @@ export class MapChunk extends Container {
     mapObject.y = xy.y + 24;
     mapObject.zIndex = globalIso.paintersOrderKey();
     this.attach(mapObject);
+    // every level it occupies, so highestLevel is only right once they are
+    // known: a large_pine is eleven cells tall, not one
     for (let i = 0; i < mapObject.objectHeight; i++) {
       const cellIso = new LocalIsoCoordinates(iso.s, iso.e, iso.u + i);
       this.assertInside(cellIso);
       this.cells[cellIso.toString()] = mapObject;
     }
+    this.highestLevel = Math.max(
+      this.highestLevel,
+      iso.u + mapObject.objectHeight - 1
+    );
     return mapObject;
   }
 

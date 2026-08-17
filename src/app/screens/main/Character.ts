@@ -35,15 +35,12 @@ const directionKey: Record<CharacterDirection, string> = {
 };
 
 /**
- * What a character occupies, in cells. Deliberately narrower than what it
- * looks like: it slips through a gap a little before its sprite stops
- * touching the walls, which is what makes moving along them feel right.
+ * What a character occupies, in cells. Deliberately narrower than it looks, so
+ * it slips through a gap a little before its sprite stops touching the walls.
  *
- * It also decides which cells hide it, and that is not a free choice — it has
- * to be the volume collision keeps clear, or a wall the character is pressed
- * against would interpenetrate it and end up with no depth order at all.
- * Whatever the sprite draws outside its silhouette is ordered by
- * approximation; EntityColumns.test.ts counts how much that is, as offSprite.
+ * It also decides which cells hide it, and that is not a free choice: it has to
+ * be the volume collision keeps clear, or a wall the character is pressed
+ * against would interpenetrate it and have no depth order at all.
  */
 const CHARACTER_HITBOX: Record<string, IsoCoordinates> = {
   default: new IsoCoordinates(0.8, 0.8, 1.9),
@@ -67,29 +64,22 @@ const NEUTRAL_FRAME = 2;
 /**
  * How far the character walks between two frames of the cycle, in cells.
  *
- * Frames follow the distance covered rather than the clock, so the cadence is
- * whatever the speed is: half speed, half cadence, and the feet never slide
- * over the ground. Half a cell is what the old fixed 250 ms per frame came out
- * at when walking at full speed, so nothing changes at full stick.
+ * Frames follow the distance covered rather than the clock, so half speed is
+ * half cadence and the feet never slide over the ground.
  */
 const CELLS_PER_FRAME = 0.4;
 
 /**
- * DEBUG — one colour per column while the depth order overlay is on, so where
- * the sprite is cut is visible at a glance. Laid out as a checkerboard over
- * (s, e) rather than by the order the pieces come in, so that a piece keeps its
- * colour while the character walks and two neighbouring columns never share one.
- * See DebugView.
+ * DEBUG — one colour per column while the depth order overlay is on (DebugView).
+ * A checkerboard over (s, e) rather than the order the pieces come in, so a
+ * piece keeps its colour while the character walks and neighbours never match.
  */
 const PIECE_TINTS = [0xff6b6b, 0x6bc8ff, 0xffd76b, 0x8cff8c];
 
 /**
- * How much of the sprite's own shading survives, the rest being a flat floor of
- * the column's colour.
- *
- * At 1 the darkest pixels come out black and the columns under them are
- * indistinguishable; at 0 the sprite is four flat silhouettes and its shape is
- * gone. This reads the cut first and the art second.
+ * How much of the sprite's shading survives, the rest a flat floor of colour.
+ * At 1 the darkest pixels come out black and hide their column; at 0 the sprite
+ * is four flat silhouettes.
  */
 const SHADING = 0.55;
 
@@ -100,22 +90,16 @@ const [LUMA_R, LUMA_G, LUMA_B] = [0.2126, 0.7152, 0.0722];
  * The colour of a column as a filter: drop the sprite to its luminance, then
  * paint that luminance back in the column's colour.
  *
- * `mesh.tint` cannot do this on its own. A tint MULTIPLIES, so it can only ever
- * take colour away: an all-red character stays red under all four tints — the
- * blue and green ones simply turn it black — and the cut is invisible, which is
- * the whole point of the overlay. Throwing the sprite's own hue away FIRST is
- * what makes four columns four colours whatever the art.
- *
- * It has to be one matrix rather than a desaturation on top of a tint: a filter
- * runs on what the mesh already rendered, tint included, so desaturating after
- * would grey out the very colour it is meant to show.
+ * `mesh.tint` cannot — it MULTIPLIES, so an all-red character stays red under
+ * all four colours and black under three — and it has to be ONE matrix rather
+ * than a desaturation over a tint, since a filter runs on what the mesh already
+ * rendered, tint included.
  */
 const columnFilter = (tint: number): ColorMatrixFilter => {
   const filter = new ColorMatrixFilter();
   const [r, g, b] = new Color(tint).toArray();
-  // out.channel = channel * (SHADING * luma + (1 - SHADING)) — the last term of
-  // a row is a constant the shader adds, which is what makes the floor affine
-  // rather than a second pass
+  // out.channel = channel * (SHADING * luma + (1 - SHADING)); a row's last term
+  // is the constant the shader adds, which is what makes the floor affine
   const row = (channel: number) =>
     [
       LUMA_R * SHADING * channel,
@@ -139,10 +123,8 @@ const columnFilter = (tint: number): ColorMatrixFilter => {
 };
 
 /**
- * Shared, and built on first use: a filter holds no per-object state, so four
- * are enough for any number of characters — and building one compiles a shader,
- * which the headless tests have no context for and no reason to want, the
- * overlay being off there.
+ * Shared, and built on first use: a filter holds no per-object state, and
+ * building one compiles a shader, which the headless tests have no context for.
  */
 const PIECE_FILTERS: ColorMatrixFilter[] = [];
 
@@ -152,13 +134,9 @@ const filterOf = (piece: EntityColumnPiece) => {
 };
 
 /**
- * One piece of the character's sprite: what it shows over a single column of
- * the map, drawn at that column's depth key.
- *
- * A mesh rather than a sprite because a piece is not a rectangle — it is a run
- * of pixels per row of the sprite, one quad each, cut along the boundary
- * between two columns. They are pooled, buffers included, and sized for the
- * worst case once: only their contents, position and depth ever change.
+ * One piece of the character's sprite: what it shows over a single column of the
+ * map, drawn at that column's depth key. A mesh rather than a sprite because a
+ * piece is not a rectangle but a run of pixels per row, one quad each.
  */
 type CharacterPiece = {
   mesh: Mesh<MeshGeometry>;
@@ -169,11 +147,10 @@ type CharacterPiece = {
 /**
  * A character on the map.
  *
- * Unlike tiles and objects, a character stands at fractional coordinates and
- * straddles cells, so no single depth key is right for its whole sprite. It is
- * therefore not a display object itself: it owns a handful of meshes, one per
- * column of the map it stands over, all drawn in the live block around it.
- * See EntityColumns.
+ * It stands at fractional coordinates and straddles cells, so no single depth
+ * key is right for its whole sprite: it is not a display object itself but owns
+ * one mesh per column it stands over, drawn in the live block. See
+ * EntityColumns.
  */
 export class Character {
   public readonly type: CharacterType;
@@ -265,10 +242,9 @@ export class Character {
   }
 
   /**
-   * Pick the animation frame the character's ground travel has earned.
-   *
-   * Only s and e count: falling is not walking, and a character pressed into a
-   * wall covers no ground and so stands still rather than walking on the spot.
+   * Pick the animation frame the character's ground travel has earned. Only s
+   * and e count, so falling is not walking and a character pressed into a wall
+   * stands still rather than walking on the spot.
    */
   public update() {
     const previous = this.walkedFrom;
@@ -297,8 +273,7 @@ export class Character {
 
   /**
    * Whether the cut is out of date. It depends only on where the character
-   * stands and how big its sprite is, so it survives every frame it does not
-   * move, animation included.
+   * stands and how big its sprite is, so it survives a change of frame.
    */
   public get needsSlicing(): boolean {
     const { s, e, u } = this.globalIsoCoordinates;
@@ -350,9 +325,9 @@ export class Character {
     for (const piece of this.pieces) {
       this.detach(piece);
       const { geometry } = piece.mesh;
-      // the texture is the shared animation frame from the atlas: not ours.
-      // The geometry is, and Mesh.destroy only drops its reference to it —
-      // buffers and the GPU allocations behind them would outlive the mesh.
+      // the texture is the atlas frame, not ours. The geometry is, and
+      // Mesh.destroy only drops its reference to it: buffers and the GPU
+      // allocations behind them would outlive the mesh.
       piece.mesh.destroy();
       geometry.destroy();
     }
@@ -361,14 +336,12 @@ export class Character {
 
   private createPiece(): CharacterPiece {
     const geometry = new MeshGeometry({ shrinkBuffersToFit: false });
-    // Left to decide for itself Pixi batches a mesh of at most 100 vertices,
-    // and a piece is one quad per row of the sprite: 128 vertices for a 32
-    // pixel character. Every piece would take a draw call of its own and cut
-    // the live block's tile batch in two on its way past, every frame.
-    //
-    // Asking for it also puts MeshPipe.validateRenderable back on the branch
-    // that compares buffer sizes — for an unbatched mesh it returns early —
-    // which is what makes the fixed sizing in fillGeometry worth anything.
+    // Left to itself Pixi batches a mesh of at most 100 vertices, and a piece is
+    // one quad per row: 128 for a 32 pixel character. Unbatched, each piece
+    // takes a draw call and splits the live block's tile batch on its way past.
+    // Asking also puts MeshPipe.validateRenderable back on the branch that
+    // compares buffer sizes, which is what makes fillGeometry's fixed sizing
+    // worth anything.
     geometry.batchMode = "batch";
     return { mesh: new Mesh({ geometry, texture: this.animationTexture }) };
   }
@@ -377,20 +350,15 @@ export class Character {
    * Fill a mesh with the runs of one piece, one quad per run.
    *
    * Positions are pixels from the sprite's top-left, UVs the same points in
-   * [0, 1] over the animation frame — the texture's own matrix takes care of
-   * where that frame sits in the atlas, so a frame change is one assignment
-   * and never touches the buffers.
+   * [0, 1] over the animation frame — the texture's own matrix places that
+   * frame in the atlas, so a frame change never touches the buffers.
    *
-   * The buffers are sized once for the worst case and never resized: a piece
-   * can hold at most one run per row of the sprite, because along a row the
-   * column it stands over only ever moves one way. That is not a detail. Pixi
-   * rebuilds a render group's whole instruction set when a BATCHED mesh's
-   * vertex count changes, and the count would otherwise follow the character
-   * around, pixel by pixel — the very thing that made moving cost 170 000
-   * objects a frame. The spare quads collapse to a point instead, and
-   * rasterize nothing. See createPiece for why the mesh is batched at all: at
-   * this size it is not by default, and this paragraph would then be describing
-   * a branch Pixi never reaches.
+   * Sized once for the worst case and never resized: a piece holds at most one
+   * run per row of the sprite, since along a row the column it stands over only
+   * moves one way. That matters because Pixi rebuilds a render group's whole
+   * instruction set when a batched mesh's vertex count changes, and the count
+   * would otherwise follow the character around pixel by pixel. Spare quads
+   * collapse to a point and rasterize nothing.
    */
   private fillGeometry(piece: CharacterPiece, cut: EntityColumnPiece) {
     const { geometry } = piece.mesh;

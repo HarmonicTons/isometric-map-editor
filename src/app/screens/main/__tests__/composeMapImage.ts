@@ -18,11 +18,10 @@ import { TileFragmentsTextures } from "../TileFragmentsTextures";
 
 /**
  * CPU compositor for snapshot tests: builds the map with the REAL Map class
- * (Pixi runs fine headless as long as nothing is rendered), then rasterizes
- * the scene graph it produced with pngjs. No game logic is duplicated here:
- * shell computation, chunking, painter's order, anchors... all come from the
- * app code. This file only re-implements the last step, turning a tree of
- * sprites into pixels, which is Pixi's job, not the app's.
+ * (Pixi runs fine headless as long as nothing is rendered), then rasterizes the
+ * scene graph with pngjs. No game logic is duplicated — shell, chunking,
+ * painter's order and anchors all come from the app code. Only the last step,
+ * turning a tree of sprites into pixels, is re-implemented here.
  */
 
 const rawAssetsDir = path.resolve(
@@ -96,10 +95,8 @@ type Blit = {
  * The quads of a character piece, read back from its mesh.
  *
  * Character.fillGeometry writes four vertices per quad — top-left, top-right,
- * bottom-right, bottom-left — with the matching corners of the animation frame
- * as UVs. Nothing else is supported: a quad that is not axis-aligned, or whose
- * UVs do not match its shape, throws rather than rasterize into something the
- * GPU would not draw.
+ * bottom-right, bottom-left — with the matching frame corners as UVs. Anything
+ * else throws rather than rasterize into something the GPU would not draw.
  */
 const meshQuads = (geometry: MeshGeometry, frame: Rectangle) => {
   const { positions, uvs } = geometry;
@@ -119,6 +116,11 @@ const meshQuads = (geometry: MeshGeometry, frame: Rectangle) => {
     const top = positions[quad + 1];
     const right = positions[quad + 2];
     const bottom = positions[quad + 5];
+    // Character.fillGeometry collapses the quads it does not need to a point
+    // rather than resizing the buffer. They rasterize nothing, but a zero-area
+    // blit still counts towards the composed image's bounds, so it would pad it
+    // with an empty margin.
+    if (right === left && bottom === top) continue;
     if (
       positions[quad + 3] !== top ||
       positions[quad + 4] !== right ||
@@ -182,10 +184,9 @@ const collectBlits = (
       });
     }
   } else if (node instanceof Graphics) {
-    // The character's shadow, and nothing else so far. Deliberately absent
-    // from the snapshots rather than approximated: it is a translucent fill,
-    // and this rasterizer only copies opaque texels. Its placement is what
-    // matters and that is unit-tested, not snapshotted.
+    // The character's shadow, and nothing else so far. Left out of the
+    // snapshots rather than approximated: it is a translucent fill and this
+    // rasterizer only copies opaque texels. Its placement is unit-tested.
   } else if (node instanceof Sprite) {
     if (node.tint !== 0xffffff || node.alpha !== 1) {
       throw new Error("Rasterizer does not support tint nor alpha");
@@ -201,10 +202,9 @@ const collectBlits = (
       sy: frame.y,
       w: frame.width,
       h: frame.height,
-      // A no-op today: every sprite sits on a whole pixel. Kept so that a
-      // sprite placed between two pixels lands
-      // somewhere sane instead of corrupting the buffer, but a snapshot taken
-      // through it would then be off by up to a pixel from the GPU.
+      // A no-op today: every sprite sits on a whole pixel. Kept so a fractional
+      // one lands somewhere sane instead of corrupting the buffer — though a
+      // snapshot through it would be off by up to a pixel from the GPU.
       dx: Math.round(x - node.anchor.x * frame.width),
       dy: Math.round(y - node.anchor.y * frame.height),
     });

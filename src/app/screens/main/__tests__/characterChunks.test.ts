@@ -9,11 +9,10 @@ import { MapChunk } from "../MapChunk";
  * The live block: the square of chunks a character is in, drawn as one
  * container so that its sprite can interleave with their cells.
  *
- * What is asserted here is the bookkeeping, not the depth order —
- * characterDrawOrder.test.ts owns that. A cell must be drawn exactly once
- * wherever it currently lives, and the chunks must get their cells back when
- * the character walks away, or the map would slowly hand everything it owns to
- * a single container and lose its chunking altogether.
+ * The bookkeeping, not the depth order (characterDrawOrder.test.ts owns that):
+ * a cell must be drawn exactly once wherever it lives, and the chunks must get
+ * their cells back when the character walks away, or the map slowly hands
+ * everything to one container and loses its chunking.
  */
 
 const CHARACTER = "005-reptincel";

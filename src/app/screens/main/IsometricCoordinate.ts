@@ -126,13 +126,9 @@ export class IsoBox {
    * A box of `size` standing on the cell at `iso`: centred on it horizontally,
    * feet on its floor.
    *
-   * An entity narrower than a cell shares the slack between its two sides, so
-   * that walking into a wall behaves the same whichever direction it came
-   * from. Hanging the box off the cell's minimum corner instead would put all
-   * the slack on the south and east sides.
-   *
-   * Height is deliberately not centred: an entity stands on the cell, it does
-   * not float in the middle of it.
+   * Centred so that an entity narrower than a cell shares the slack between its
+   * two sides, and walking into a wall behaves the same from either direction.
+   * Height is not centred: an entity stands on the cell.
    */
   public static standingOn(iso: IsoCoordinates, size: IsoCoordinates): IsoBox {
     const min = iso.add(
@@ -145,16 +141,14 @@ export class IsoBox {
    * Range of integer cells the box overlaps on one axis, both bounds included.
    *
    * Because the box is half-open, a box whose max falls exactly on a cell
-   * boundary does NOT overlap the cell beyond it: this is what lets a
-   * character standing flush against a wall still move along it.
+   * boundary does NOT overlap the cell beyond it: this is what lets a character
+   * standing flush against a wall still move along it.
    *
-   * A bound within EDGE of a whole number counts as being on it. A box is
-   * built by adding fractions — `standingOn` adds the slack, then the size —
-   * so a face that should land exactly on a boundary lands a few 1e-16 past
-   * it, and without this an entity would claim a cell it does not touch. That
-   * is not cosmetic: it made the same entity occupy a different number of
-   * cells depending on where it stood on the map, which changes both its
-   * collisions and the way its sprite is cut.
+   * A bound within EDGE of a whole number counts as being on it. A box is built
+   * by adding fractions, so a face that should land exactly on a boundary lands
+   * a few 1e-16 past it; without this the same entity would occupy a different
+   * number of cells depending on where it stood, changing both its collisions
+   * and the way its sprite is cut.
    */
   public cellRange(axis: IsoAxis): [number, number] {
     const min = Math.floor(this.min[axis] + EDGE);
@@ -163,13 +157,9 @@ export class IsoBox {
   }
 
   /**
-   * The whole cells the box covers, as a half-open range [min, max) — the
-   * corners of `cellRange` on all three axes at once.
-   *
-   * Kept here rather than derived by callers so that a box and the cells it
-   * covers can never disagree: it is the same fact, and turning a fractional
-   * coordinate into a cell index is a question only this class knows how to
-   * answer (see the EDGE forgiveness above).
+   * The whole cells the box covers, as a half-open range [min, max): the
+   * corners of `cellRange` on all three axes at once. Kept here so a box and its
+   * cells can never disagree about the EDGE forgiveness above.
    */
   public cells(): { min: IsoCoordinates; max: IsoCoordinates } {
     const [minS, maxS] = this.cellRange("s");
@@ -185,39 +175,27 @@ export class IsoBox {
 /**
  * What a cell's depth key gains per diagonal (s + e) and per level (u).
  *
- * The ratio is free: whenever a cell hides another it has at least as high a
- * diagonal AND at least as high a u, so every positive pair is an exact
- * painter's order. IsometricCoordinate.test.ts proves it by enumerating the
- * offsets at which one cell hides another.
+ * The ratio is free for correctness: whenever a cell hides another it has at
+ * least as high a diagonal AND as high a u, so every positive pair is an exact
+ * painter's order (IsometricCoordinate.test.ts enumerates it).
  *
- * What the ratio does decide is how much room is left BETWEEN two cells, and
- * that is what anything standing across cells needs. Height weighted as low as
- * it can be leaves a whole unit between one cell of a column and the next,
- * which is what a character's pieces are keyed inside of — see
- * EntityColumns.subCellKey.
+ * What it decides is the room left BETWEEN two cells, which anything standing
+ * across them needs: height weighted as low as it can be leaves a whole unit
+ * between one cell of a column and the next (EntityColumns.subCellKey). Do not
+ * tune it — a MapObject taller than one cell carries the key of its base cell
+ * (MapChunk.createMapObject) and only survives that because a whole column fits
+ * between two diagonals here.
  *
- * It also moves that room away from somewhere else, which is what stops it
- * being tuned: a MapObject taller than one cell carries the key of its base
- * cell while its sprite covers its whole height (MapChunk.createMapObject), and
- * only survives that because a whole column of cells fits between two diagonals
- * here. At a ratio of 10 / 7 it no longer does, and the trees of koring-wood
- * and deti-plains change where they sort against the cliffs behind them.
- * Cutting tall objects by column the way characters are cut is what would
- * unlock this.
- *
- * Whole numbers, because anything standing across cells takes a key strictly
- * between two of them by adding a fraction, which only never ties if cell keys
- * are integers.
+ * Whole numbers, so that a fractional key inserted between two cells never ties.
  */
 const DIAGONAL_WEIGHT = MAP_MAX_HEIGHT;
 const HEIGHT_WEIGHT = 1;
 
 /**
- * Depth key of a cell: an exact linear extension of "this cell hides that
- * one" for integer cells.
+ * Depth key of a cell: an exact linear extension of "this cell hides that one".
  *
- * @see GlobalIsoCoordinates.paintersOrderKey, which is the way to call it
- * unless allocating a coordinate would be too costly.
+ * @see GlobalIsoCoordinates.paintersOrderKey, the way to call it unless
+ * allocating a coordinate would be too costly.
  */
 export const paintersOrderKey = (s: number, e: number, u: number): number =>
   DIAGONAL_WEIGHT * (s + e) + HEIGHT_WEIGHT * u;
@@ -231,11 +209,9 @@ export class GlobalIsoCoordinates extends IsoCoordinates {
   /**
    * Depth key of this cell, for the zIndex of whatever displays it.
    *
-   * Deliberately defined on global coordinates only: the live block draws the
-   * cells of four chunks and the pieces of a character in one container, so
-   * every key that meets there has to be counted from the same origin. Keying
-   * a tile on its chunk-local coordinates instead would make those families
-   * incomparable.
+   * Defined on global coordinates only: the live block draws the cells of four
+   * chunks and the pieces of a character in one container, so every key meeting
+   * there has to be counted from the same origin.
    */
   public paintersOrderKey(): number {
     return paintersOrderKey(this.s, this.e, this.u);

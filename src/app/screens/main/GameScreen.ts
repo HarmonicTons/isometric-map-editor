@@ -162,9 +162,8 @@ export class GameScreen extends Container {
   }
 
   /**
-   * Frames per second, averaged over the last window rather than taken from
-   * the last frame: an instant reading swings by twenty between two frames and
-   * cannot be read at all. Counted whether or not the overlay is on, so that
+   * Frames per second, averaged over the last window: an instant reading swings
+   * by twenty between two frames. Counted whether or not the overlay is on, so
    * the number is already right when it appears.
    */
   private countFrame(time: Ticker) {

@@ -7,7 +7,11 @@ import {
   walkVelocity,
 } from "./Map";
 import { buildHeadlessMap } from "./__tests__/composeMapImage";
-import { GlobalIsoCoordinates, MAP_MAX_HEIGHT } from "./IsometricCoordinate";
+import {
+  GlobalIsoCoordinates,
+  IsoBox,
+  MAP_MAX_HEIGHT,
+} from "./IsometricCoordinate";
 
 /** Where a walk of one second lands on screen, in pixels */
 const onScreen = (leftStickX: number, leftStickY: number) => {
@@ -30,13 +34,11 @@ const pace = (leftStickX: number, leftStickY: number) => {
 };
 
 describe("walkVelocity", () => {
-  // Never the value of CHARACTER_SPEED, always a relation between two of
-  // these: the speed is a knob, and a test that pins the knob is a test that
-  // has to be edited every time it is turned.
+  // Never the value of CHARACTER_SPEED, always a relation between two of these:
+  // a test that pins a knob has to be edited every time it is turned.
   it("walks the same distance in every direction", () => {
-    // What the grid measures, not what the screen shows. The two differ by the
-    // 2:1 squash of the projection, and it is the grid that the ground, the
-    // collisions and the walk cycle all live in.
+    // In the grid, not on the screen: the two differ by the projection's 2:1
+    // squash, and the grid is where collisions and the walk cycle live.
     const speeds = allDirections.map(([x, y]) => pace(x, y));
     expect(new Set(speeds).size).toBe(1);
     expect(speeds[0]).toBeGreaterThan(0);
@@ -192,6 +194,122 @@ describe("a character falling onto the ground", () => {
   });
 });
 
+/**
+ * Walk the character with the stick held at (x, y) for `frames` frames, calling
+ * `watch` after each one.
+ */
+const walkWith = (
+  map: IsometricMap,
+  x: number,
+  y: number,
+  frames: number,
+  watch: () => void
+) => {
+  vi.stubGlobal("navigator", {
+    getGamepads: () => [{ axes: [x, y], buttons: [{ pressed: false }] }],
+  });
+  try {
+    const tick = { deltaMS: 1000 / 60, lastTime: 0 } as Ticker;
+    for (let frame = 0; frame < frames; frame++) {
+      map.update(tick);
+      watch();
+    }
+  } finally {
+    vi.unstubAllGlobals();
+  }
+};
+
+/** The whole cells a character's hitbox currently overlaps */
+const cellsUnder = (map: IsometricMap): Set<string> => {
+  const character = map.character!;
+  const cells = IsoBox.standingOn(
+    character.globalIsoCoordinates,
+    character.hitbox
+  ).cells();
+  const overlapped = new Set<string>();
+  for (let s = cells.min.s; s < cells.max.s; s++) {
+    for (let e = cells.min.e; e < cells.max.e; e++) {
+      for (let u = cells.min.u; u < cells.max.u; u++) {
+        overlapped.add(`${s},${e},${u}`);
+      }
+    }
+  }
+  return overlapped;
+};
+
+describe("a character walking into something solid", () => {
+  beforeAll(() => {
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+  });
+
+  /** Flat ground, with a one cell pillar standing two tall on the far corner */
+  const withPillar = (): IsometricMap => {
+    const tiles: Record<string, string> = {};
+    for (let s = 2; s <= 8; s++) {
+      for (let e = 2; e <= 8; e++) tiles[`${s},${e},0`] = "dirt";
+    }
+    tiles["5,5,1"] = "rock";
+    tiles["5,5,2"] = "rock";
+    return buildHeadlessMap({
+      tiles,
+      objects: {},
+      characters: { "4,4,6": "005-reptincel" },
+    } as MapData);
+  };
+
+  it("never ends a frame inside it, approached corner-on", () => {
+    // The diagonal is what makes this hard. Sweeping both axes against the same
+    // starting box, each one only ever scans the cells the box already spans on
+    // the other, so neither sees the cell diagonally ahead and the pillar is
+    // simply walked through. A stick pushed straight down the screen is exactly
+    // that: pure +s +e.
+    const map = withPillar();
+    const tick = { deltaMS: 1000 / 60, lastTime: 0 } as Ticker;
+    for (let frame = 0; frame < 60; frame++) map.update(tick);
+    expect(map.character!.globalIsoCoordinates.u).toBe(1);
+
+    const inside: string[] = [];
+    walkWith(map, 0, 1, 180, () => {
+      const cells = cellsUnder(map);
+      for (const cell of ["5,5,1", "5,5,2"]) {
+        if (cells.has(cell)) inside.push(cell);
+      }
+    });
+    expect(inside).toEqual([]);
+    // and it did not simply stand still: it reached the pillar and stopped
+    expect(map.character!.globalIsoCoordinates.s).toBeGreaterThan(4.4);
+    map.destroy({ children: true });
+  });
+
+  it("still slides along a wall instead of sticking to it", () => {
+    // The reason both sweeps started from the same box in the first place, and
+    // what any fix has to keep: pushing into a wall at an angle has to carry on
+    // along it rather than stop dead.
+    const tiles: Record<string, string> = {};
+    for (let s = 2; s <= 8; s++) {
+      for (let e = 2; e <= 8; e++) tiles[`${s},${e},0`] = "dirt";
+    }
+    // a wall across the s axis, leaving e free
+    for (let e = 2; e <= 8; e++) tiles[`6,${e},1`] = "rock";
+    const map = buildHeadlessMap({
+      tiles,
+      objects: {},
+      characters: { "4,4,6": "005-reptincel" },
+    } as MapData);
+    const tick = { deltaMS: 1000 / 60, lastTime: 0 } as Ticker;
+    for (let frame = 0; frame < 60; frame++) map.update(tick);
+
+    const before = map.character!.globalIsoCoordinates;
+    walkWith(map, 0, 1, 120, () => {});
+    const after = map.character!.globalIsoCoordinates;
+    // stopped by the wall on s...
+    expect(after.s).toBeLessThan(6);
+    // ...and still travelled on e, which nothing was blocking
+    expect(after.e - before.e).toBeGreaterThan(1);
+    map.destroy({ children: true });
+  });
+});
+
 /** The pieces of shadow that currently paint something */
 const shadowsOf = (node: Container): Graphics[] =>
   node.children.flatMap((child) => [
@@ -268,11 +386,9 @@ describe("the character's shadow", () => {
   });
 
   it("keys every piece to the cell it lies on, not to the last of them", () => {
-    // One key for the whole shadow reads much better than a key per cell, and
-    // is wrong: it lifts the pieces lying on cells behind — the ones a
-    // character on an edge drops into the hole beside it — over the tile and
-    // over the character that ought to hide them. A character straddling two
-    // diagonals is what tells the two apart.
+    // One key for the whole shadow reads better and is wrong: it lifts the
+    // pieces lying on cells behind over the tile and the character that ought
+    // to hide them. A character straddling two diagonals tells them apart.
     const map = landed();
     map.character!.globalIsoCoordinates = new GlobalIsoCoordinates(4.5, 4, 1);
     map.update({ deltaMS: 1000 / 60, lastTime: 0 } as Ticker);
@@ -297,10 +413,9 @@ describe("the character's shadow", () => {
   });
 
   it("follows the ground down over the edge of a step", () => {
-    // A character on the lip of a step: the half of its shadow that misses the
-    // step has to land a level below, not hang in the air beside it. The same
-    // character in the same place, once on a plateau and once on its edge, is
-    // what isolates the step from everything else.
+    // The half of a shadow that misses the step has to land a level below, not
+    // hang in the air beside it. The same character in the same place, once on
+    // a plateau and once on its edge, isolates the step from everything else.
     const plateau = (stepAt?: number): MapData => {
       const tiles: Record<string, string> = {};
       for (let s = 2; s <= 6; s++) {
@@ -387,6 +502,56 @@ describe("a tile with something floating over it", () => {
     expect(isShaded(map, 4, 4, 0)).toBe(true);
     map.removeEntityAt(new GlobalIsoCoordinates(4, 4, 9));
     expect(isShaded(map, 4, 4, 0)).toBe(false);
+    map.destroy({ children: true });
+  });
+
+  it("is cast by tiles only: a map object darkens nothing", () => {
+    // Not an arbitrary rule but the one thing that keeps the shade in step with
+    // the map: nothing refreshes the column under an object when it is added or
+    // taken away, so the moment an object could cast, the shade would depend on
+    // the order the edits happened in. Both halves are asserted here — loaded
+    // with the map, and edited in afterwards — because the loading path and the
+    // editing path reach isOvershadowed differently.
+    const loaded = buildHeadlessMap({
+      tiles: Object.fromEntries(
+        [2, 3, 4, 5, 6].flatMap((s) =>
+          [2, 3, 4, 5, 6].map((e) => [`${s},${e},0`, "dirt"])
+        )
+      ),
+      objects: { "4,4,3": "small_pine" },
+      characters: {},
+    } as MapData);
+    expect(isShaded(loaded, 4, 4, 0)).toBe(false);
+    loaded.destroy({ children: true });
+
+    const edited = under({});
+    expect(isShaded(edited, 4, 4, 0)).toBe(false);
+    edited.addMapObjectAt(
+      new GlobalIsoCoordinates(4, 4, 3),
+      "small_pine" as never
+    );
+    expect(isShaded(edited, 4, 4, 0)).toBe(false);
+    // The column re-shaded by an unrelated edit, which is what makes this
+    // discriminating: planting the tree cannot show the difference on its own,
+    // because nothing refreshes the column then — that IS the bug. Only once
+    // something else has walked it does a caster that should not count appear.
+    edited.addTileAt(new GlobalIsoCoordinates(4, 4, 30), "dirt" as never);
+    edited.removeEntityAt(new GlobalIsoCoordinates(4, 4, 30));
+    expect(isShaded(edited, 4, 4, 0)).toBe(false);
+    edited.removeEntityAt(new GlobalIsoCoordinates(4, 4, 3));
+    expect(isShaded(edited, 4, 4, 0)).toBe(false);
+    edited.destroy({ children: true });
+  });
+
+  it("still sees a tile above an object, whatever the object's height", () => {
+    // What MapChunk.highestLevel is for: it bounds the upward search, so an
+    // object that under-reports its height would hide everything above it.
+    const map = under({ "4,4,20": "dirt" });
+    map.addMapObjectAt(
+      new GlobalIsoCoordinates(4, 4, 2),
+      "large_pine" as never
+    );
+    expect(isShaded(map, 4, 4, 0)).toBe(true);
     map.destroy({ children: true });
   });
 });

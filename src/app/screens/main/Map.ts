@@ -49,26 +49,21 @@ const GRAVITY = 40;
 /** Speed a jump leaves the ground at, in cells per second */
 const JUMP_SPEED = 10;
 /**
- * Fastest it can fall, in cells per second. It exists so that a long drop
- * cannot cross a whole cell between two frames and land inside the floor.
+ * Fastest it can fall, in cells per second. A feel knob, not a safety net: Pixi
+ * clamps a hitching frame to 100 ms, so a long drop still crosses two cells
+ * between two frames. What keeps it out of the floor is the sweep in
+ * `freeDistance`, which marches the box however far the move reaches.
  */
 const TERMINAL_SPEED = 20;
 
-/**
- * How far below its feet the ground is looked for, in cells. Small enough that
- * it only ever finds a floor the character is already resting on.
- */
+/** How far below its feet the ground is looked for: only a floor it rests on */
 const GROUND_PROBE = 1e-6;
 
 /**
  * The character's vertical speed after one frame, in cells per second.
  *
- * Vertical motion is a speed the ground zeroes and A resets, not the constant
- * it used to be: that is the whole difference between a jump and a lift. With
- * these numbers the apex is JUMP_SPEED² / 2·GRAVITY = 1.25 cells — enough to
- * climb onto anything one cell high — reached in a quarter of a second. A
- * little more in practice: the first frame of a jump moves at the full jump
- * speed before any gravity is taken off it.
+ * With these numbers the apex is JUMP_SPEED² / 2·GRAVITY = 1.25 cells — enough
+ * to climb onto anything one cell high — reached in a quarter of a second.
  */
 export const fallVelocity = (
   verticalSpeed: number,
@@ -87,16 +82,14 @@ export const fallVelocity = (
 /**
  * Where the stick asks the character to walk, in cells per second.
  *
- * The stick points somewhere on the screen; the character walks in the grid.
- * Undoing the projection gives which way that is: x = 16(e − s) and
- * y = 8(e + s), so a screen direction (x, y) is (y/8 − x/16) along s and
- * (y/8 + x/16) along e.
+ * The stick points on the screen; the character walks in the grid. Undoing the
+ * projection — x = 16(e − s), y = 8(e + s) — makes a screen direction (x, y)
+ * into (y/8 − x/16) along s and (y/8 + x/16) along e.
  *
  * Normalising THAT is what keeps the speed constant in cells. Normalising the
- * screen direction instead keeps it constant in pixels, which is not the same
- * thing at all: the projection squashes y by two, so walking up the screen
- * would cover twice the ground of walking across it — and now that the walk
- * cycle follows the ground covered, the legs would visibly race.
+ * screen direction keeps it constant in pixels instead, and since the
+ * projection squashes y by two, walking up the screen would cover twice the
+ * ground of walking across it.
  */
 export const walkVelocity = (
   leftStickX: number,
@@ -116,36 +109,23 @@ export const walkVelocity = (
  * Side of the live block, in chunks — the square of chunks around the
  * character that is drawn as a single container. See Map.syncBlock.
  *
- * Merging chunks means giving the whole set ONE rank where each of them had
- * its own, and that is not always possible: a chunk left outside has to sort
- * the same way against every block chunk it is ordered against, and the rank
- * has to sit between the two. Written out over the block's corners, a rank
- * exists exactly when the block's two sides differ by at most one, and it is
- * the block's middle diagonal, s0 + e1. Being square is what makes that middle
- * a whole number rather than a half — a 2 × 3 block would work too, at a rank
- * of x.5. characterChunks.test.ts checks the rank against every occluding pair
- * of cells that crosses the block's edge, rather than trusting this paragraph:
- * an earlier version of it was wrong in both directions and the code was right
- * anyway.
+ * Merging chunks gives the whole set ONE rank where each had its own, which is
+ * only possible when the block's two sides differ by at most one; the rank is
+ * then its middle diagonal, s0 + e1, and being square is what makes that middle
+ * a whole number. characterChunks.test.ts checks it against every occluding
+ * pair of cells crossing the block's edge.
  *
- * Two chunks of side means the character is never closer than half a chunk to
- * the block's edge — four cells, against the two a cell constraining it is ever
- * away from it (EntityColumns.test.ts, "is never constrained by a cell more
- * than two cells away").
+ * Two chunks of side means the character is never closer than half a chunk —
+ * four cells — to the block's edge, against the three a cell constraining the
+ * largest entity is ever away (EntityColumns.test.ts). One cell of headroom, so
+ * anything bigger than a 2×2 footprint wants a bigger chunk, not a bigger block.
  */
 const BLOCK_SIDE = 2;
 
-/**
- * How far below its feet a character still casts a shadow, in cells. Past
- * that, a shadow says nothing useful about where it is.
- */
+/** How far below its feet a character still casts a shadow, in cells */
 const SHADOW_REACH = 16;
 
-/**
- * How far above a cell something has to float before it darkens its top face,
- * in cells. One empty level between them: a tile resting on another casts
- * nothing, there is nowhere for the shadow to fall.
- */
+/** One empty level: a tile resting on another has nowhere to cast a shadow */
 const OVERHANG_GAP = 2;
 
 /**
@@ -189,8 +169,8 @@ export class Map extends Container {
   private jumpHeld = false;
 
   /**
-   * How fast the character actually moved last frame, in cells per second —
-   * what it did, not what the stick asked for. Read by the debug readout.
+   * How fast the character actually moved last frame — what it did, not what
+   * the stick asked for.
    */
   public get characterVelocity(): IsoCoordinates {
     return this.velocity;
@@ -204,11 +184,9 @@ export class Map extends Container {
     mapData: MapData,
     public tileFragmentsTextures: TileFragmentsTextures,
     /**
-     * Side of a chunk, in cells. Only tests ever change it: a single huge
-     * chunk is the exact draw order the chunked one has to reproduce, and a
-     * small one puts a boundary everywhere. Half of it is how far the
-     * character is from the edge of its block, so it may not go below twice
-     * the reach of a constraining cell.
+     * Side of a chunk, in cells. Only tests change it, to put a boundary
+     * everywhere or nowhere. Half of it is the character's distance to the edge
+     * of its block, so it may not go below twice a constraining cell's reach.
      */
     chunksSize = 8
   ) {
@@ -346,23 +324,37 @@ export class Map extends Container {
   }
 
   /**
-   * Whether something floating in this column darkens the top face of `iso`.
+   * Whether a cell holds a TILE — the only thing that casts a shade.
    *
-   * The light comes straight down, so what casts is whatever stands in the same
-   * column with at least one empty level in between: an overhang, a bridge, a
-   * ceiling. No limit on how high it is — a shadow does not fade with distance
-   * here any more than a character's does.
+   * Deliberately not `isSolidAt`, which also counts map objects: a tree blocks
+   * movement but darkens nothing. Objects are left out because nothing
+   * refreshes the column under one when it appears or goes away —
+   * `addMapObjectAt` and the object branch of `removeEntityAt` leave the
+   * neighbourhood alone, and the constructor loads objects after the map-wide
+   * shading pass. Counting them here would make the shade depend on the order
+   * the edits happened in: a tree planted over a clearing would cast nothing
+   * until something else touched that column, and a felled one would leave its
+   * shade behind.
+   */
+  private isTileAt(iso: GlobalIsoCoordinates): boolean {
+    const cell = this.getCellContentAt(iso);
+    return typeof cell === "string" || cell instanceof Tile;
+  }
+
+  /**
+   * Whether a tile floating in this column darkens the top face of `iso`.
    *
-   * The search stops at the highest cell the chunk has ever held, which is what
-   * keeps this from walking to MAP_MAX_HEIGHT over every tile of a flat map.
+   * The light comes straight down, so what casts is any tile in the same column
+   * with at least one empty level in between, at any height at all. The search
+   * stops at the highest cell the chunk has ever held, which keeps this from
+   * walking to MAP_MAX_HEIGHT over every tile of a flat map.
    */
   public isOvershadowed(iso: GlobalIsoCoordinates): boolean {
     // a face with something resting on it is not a face at all
-    if (this.isSolidAt(iso.move("up"))) return false;
+    if (this.isTileAt(iso.move("up"))) return false;
     const ceiling = this.getChunkAt(iso)?.highestLevel ?? -1;
     for (let u = iso.u + OVERHANG_GAP; u <= ceiling; u++) {
-      if (this.isSolidAt(new GlobalIsoCoordinates(iso.s, iso.e, u)))
-        return true;
+      if (this.isTileAt(new GlobalIsoCoordinates(iso.s, iso.e, u))) return true;
     }
     return false;
   }
@@ -459,10 +451,9 @@ export class Map extends Container {
   /**
    * Refresh every cell of the column below `iso`.
    *
-   * What floats over a cell can be at any height at all — that is the whole
-   * point of isOvershadowed — so putting a tile down changes what is shaded all
-   * the way to the floor, far past any neighbourhood. Only an edit pays for
-   * this walk; loading a map shades every tile in one pass instead.
+   * What floats over a cell can be at any height (see isOvershadowed), so
+   * putting a tile down changes what is shaded all the way to the floor, far
+   * past any neighbourhood. Only an edit pays for this walk.
    */
   private refreshColumnBelow(iso: GlobalIsoCoordinates) {
     for (let u = iso.u - 1; u >= 0; u--) {
@@ -665,8 +656,8 @@ export class Map extends Container {
    * First solid cell met by marching a box along a direction, or undefined if
    * there is none within `searchDepth` cells.
    *
-   * The scan starts at the box's leading face, so a cell the box already
-   * overlaps is never returned.
+   * Scanning from the box's leading face, so a cell it already overlaps is
+   * never returned.
    */
   private firstSolidCellTowards(
     box: IsoBox,
@@ -695,6 +686,41 @@ export class Map extends Container {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Where a hitbox standing at `from` ends up after asking to move by
+   * (deltaS, deltaE), stopped by whatever is in the way and sliding along it.
+   *
+   * One axis at a time, the second swept from where the first left the box.
+   * Sweeping both against the SAME starting box lets a diagonal step walk
+   * through a solid corner: each sweep only scans the cells the box already
+   * spans on the other axis, so neither ever sees the cell diagonally ahead,
+   * and a 1×1 pillar approached corner-on is simply passable. Advancing between
+   * the two is what brings that cell into range — whichever axis crosses the
+   * boundary last is swept against a box that already spans the other one.
+   *
+   * The larger component goes first, so the outcome does not depend on which
+   * axis happens to be called s.
+   */
+  private slideAlong(
+    from: GlobalIsoCoordinates,
+    hitbox: IsoCoordinates,
+    deltaS: number,
+    deltaE: number
+  ): GlobalIsoCoordinates {
+    const delta: Record<"s" | "e", number> = { s: deltaS, e: deltaE };
+    const order: ("s" | "e")[] =
+      Math.abs(deltaS) >= Math.abs(deltaE) ? ["s", "e"] : ["e", "s"];
+    let at = from;
+    for (const axis of order) {
+      const box = IsoBox.standingOn(at, hitbox);
+      const step = this.freeDistance(box, axis, delta[axis]);
+      const move = new IsoCoordinates(0, 0, 0);
+      move[axis] = step;
+      at = at.add(move);
+    }
+    return at;
   }
 
   /**
@@ -738,13 +764,10 @@ export class Map extends Container {
    * The left stick and the jump button of the first gamepad that is there, or
    * nothing.
    *
-   * Asked afresh every frame rather than remembered from `gamepadconnected`:
-   * the browser leaves a null in the slot once a pad is unplugged and fires no
-   * event this side can act on, so a remembered index turns into a crash on
-   * every frame of the ticker. Polling also means a pad plugged in halfway
-   * through, or a map loaded after it, just works.
-   *
-   * `jump` is the press, not the hold: holding A down does not bounce.
+   * Polled every frame rather than remembered from `gamepadconnected`: the
+   * browser leaves a null in the slot once a pad is unplugged and fires no
+   * event, so a remembered index crashes on every frame of the ticker.
+   * `jump` is the press, not the hold.
    */
   private sampleInput() {
     // node has a navigator, but no gamepads on it
@@ -795,18 +818,11 @@ export class Map extends Container {
             : "west";
     }
 
-    // Both axes are swept against the same starting box: this is what makes
-    // the character slide along a wall instead of sticking to it.
-    const walkBox = IsoBox.standingOn(
+    const walked = this.slideAlong(
       character.globalIsoCoordinates,
-      character.hitbox
-    );
-    const walked = character.globalIsoCoordinates.add(
-      new IsoCoordinates(
-        this.freeDistance(walkBox, "s", deltaS),
-        this.freeDistance(walkBox, "e", deltaE),
-        0
-      )
+      character.hitbox,
+      deltaS,
+      deltaE
     );
 
     // Rising and falling are one more sweep, on the u axis. Standing on
@@ -864,17 +880,14 @@ export class Map extends Container {
    * Keep the square of chunks around the character drawn as a single
    * container, and return it.
    *
-   * A chunk is a container, so it is drawn atomically: everything in it goes
-   * before everything in the next one. That is what a character standing
-   * across two of them cannot express — it needs to come after a cell of one
-   * and before a cell of the other. So while it is there, those chunks stop
-   * being separate containers: they lend their cells to one block, which sorts
-   * cells and character pieces alike by the global depth key. That is exactly
-   * the order sliceEntityByColumn assumes, which is why it needs to know
-   * nothing about chunks.
+   * A chunk is a container, so it is drawn atomically, and a character standing
+   * across two of them needs to come after a cell of one and before a cell of
+   * the other. While it is there, those chunks lend their cells to one block
+   * that sorts cells and character pieces alike by the global depth key — the
+   * order sliceEntityByColumn assumes, which is why it knows nothing of chunks.
    *
-   * The chunks outside the block keep being drawn atomically, which is what
-   * leaves the door open to baking them into a single texture one day.
+   * The chunks outside the block stay atomic, leaving the door open to baking
+   * them into a single texture one day.
    */
   private syncBlock(iso: GlobalIsoCoordinates): Container {
     const size = this.chunksSize;
@@ -922,9 +935,8 @@ export class Map extends Container {
    * The highest solid cell strictly below the level `u` in the column (s, e),
    * or nothing within SHADOW_REACH.
    *
-   * One column, not the character's whole footprint: what the shadow needs is
-   * the ground under each cell it covers separately, since two of them can be
-   * at different heights.
+   * One column, not the whole footprint: the shadow needs the ground under each
+   * cell it covers separately, since two of them can be at different heights.
    */
   private groundUnder(s: number, e: number, u: number): number | undefined {
     const below = Math.floor(u) - 1;
@@ -941,32 +953,23 @@ export class Map extends Container {
   /**
    * Keep the character's shadow on the ground below it.
    *
-   * A shadow is the only thing that says how high a character is: without one,
-   * jumping and walking up a slope look exactly alike, and a character in
-   * mid-air is indistinguishable from one standing on a cell further back.
-   *
-   * It is painted one ground cell at a time, each piece a quarter above the
-   * cell it lies on. One key for the whole shadow does not work, however much
-   * simpler it looks: it lifts the pieces that lie on cells behind — the ones a
-   * character standing on an edge drops into the hole beside it — over the tile
-   * and over the character that ought to hide them. Keeping every piece with
-   * its own cell is what keeps the depth order honest; the seams between them
-   * are closed by the SEAM bias instead.
+   * Painted one ground cell at a time, each piece a quarter above the cell it
+   * lies on. One key for the whole shadow does not work: it lifts the pieces
+   * lying on cells behind — the ones a character standing on an edge drops into
+   * the hole beside it — over the tile and the character that ought to hide
+   * them. The seams between pieces are closed by the SEAM bias instead.
    */
   private syncShadow(block: Container, character: Character) {
     const iso = character.globalIsoCoordinates;
-    // The disc inside the footprint, and not the one around it: it keeps the
-    // shadow within the cells the hitbox itself covers, and those can never be
-    // in front of the character along the view ray. A wider shadow reaches the
-    // cell in front, which is drawn after the character — and a few dark
-    // pixels land on its feet.
+    // The disc INSIDE the footprint: it keeps the shadow within the cells the
+    // hitbox covers, which can never be in front of the character. A wider one
+    // reaches the cell in front, drawn after the character, and dark pixels
+    // land on its feet.
     const radius = Math.min(character.hitbox.s, character.hitbox.e) / 2;
-    // On whole pixels, like the sprite it belongs to (EntityColumns.placeSprite
-    // rounds that one): a shadow that slid by fractions of a pixel under a
-    // sprite that snaps would shimmer, and would have to be rasterized again
-    // every single frame.
-    // The projection is what is rounded — x moves a pixel per 1/16 of a cell
-    // of (e − s), y per 1/8 of a cell of (e + s) — and inverted back.
+    // On whole pixels, like the sprite (EntityColumns.placeSprite rounds too),
+    // or it shimmers under it and is rasterized again every frame. What is
+    // rounded is the projection — a pixel per 1/16 of a cell of (e − s), per
+    // 1/8 of (e + s) — then inverted back.
     const across = Math.round(16 * (iso.e - iso.s)) / 16;
     const along = Math.round(8 * (iso.e + iso.s)) / 8;
     const centre = {
@@ -989,11 +992,10 @@ export class Map extends Container {
         if (ground === undefined) continue;
         const runs = shadowRuns(cs, ce, centre, radius);
         if (runs.length === 0) continue;
-        // Over the cell it lies on, and under the character standing above
-        // it: the ground is a whole level below the cell the character's own
-        // pieces are keyed from, and they take a fraction above that one
-        // (EntityColumns.subCellKey), so the two are three quarters apart at
-        // the very least. The quarter only has to clear the cell it lies on.
+        // Over the cell it lies on, under the character: the ground is a level
+        // below the cell the character's pieces are keyed from, and those take
+        // a fraction above it (EntityColumns.subCellKey), so the quarter only
+        // ever has to clear the cell the shadow lies on.
         this.paintShadow(used++, block, runs, {
           at: new GlobalIsoCoordinates(cs, ce, ground).toXY(),
           zIndex: paintersOrderKey(cs, ce, ground) + 0.25,
@@ -1006,12 +1008,11 @@ export class Map extends Container {
   /**
    * Fill one pooled piece of shadow with `runs`, and only when they changed.
    *
-   * The guard is not an optimisation, it is what makes the shadow affordable:
-   * Pixi rebuilds the draw instructions of a whole render group as soon as one
-   * Graphics in it reports a change, and GraphicsPipe.validateRenderable
-   * reports one for anything batchable without looking at what actually
-   * changed. Redrawing an unmoved shadow would therefore cost the live block's
-   * entire instruction set, every frame, standing still included.
+   * The guard is not an optimisation: Pixi rebuilds the draw instructions of a
+   * whole render group as soon as one Graphics in it reports a change, and
+   * GraphicsPipe.validateRenderable reports one for anything batchable without
+   * looking at what changed. Redrawing an unmoved shadow would cost the live
+   * block's entire instruction set, every frame, standing still included.
    */
   private paintShadow(
     index: number,
@@ -1074,11 +1075,9 @@ export class Map extends Container {
 
   /**
    * DEBUG — writes the depth key on every cell around the character and on
-   * every piece of its sprite, so the order they are drawn in can be read off
-   * the screen. Toggled with F10, see DebugView.
-   *
-   * Only the cells the character can reach are labelled: a whole map's worth of
-   * text would be unreadable, and unrelated to what the cut depends on.
+   * every piece of its sprite, so the draw order can be read off the screen.
+   * Toggled with F10, see DebugView. Only the cells the character can reach are
+   * labelled; a whole map's worth of text would be unreadable.
    */
   private syncDepthKeys() {
     const character = this.character;
@@ -1106,10 +1105,8 @@ export class Map extends Container {
         this.depthKeyOverlay!.addChild(
           new Text({
             text: "",
-            // A cell is 32 px wide and holds two lines of up to thirteen
-            // characters, so the type has to be tiny not to collide with the
-            // neighbours'. Rendering it at eight times the size keeps it
-            // readable once the viewport zooms in.
+            // thirteen characters have to fit in a 32 px cell, so the type is
+            // tiny; the resolution is what keeps it readable once zoomed in
             resolution: 8,
             anchor: 0.5,
             style: {
@@ -1161,10 +1158,9 @@ export class Map extends Container {
     const slicing = character.slicing;
     const pieces = slicing?.pieces ?? [];
     pieces.forEach((piece, index) => {
-      // A piece is a run of pixels per row, not a rectangle, so what places its
-      // label is the middle of the pixels it actually covers: the centre of the
-      // bounding box of a piece cut along a diagonal regularly falls inside the
-      // neighbouring one.
+      // A piece is a run of pixels per row, not a rectangle, so the label goes
+      // at the centroid of the pixels it covers: the centre of the bounding box
+      // of a piece cut along a diagonal falls inside the neighbouring one.
       let covered = 0;
       let x = 0;
       let y = 0;
@@ -1173,17 +1169,15 @@ export class Map extends Container {
         x += (run.x + run.width / 2) * run.width;
         y += (run.y + 0.5) * run.width;
       }
-      // Which column the piece stands over — except on the nearest of them,
-      // which comes last, where reading the character's own position right next
-      // to the cell it stands on is worth more.
+      // Which column the piece stands over — except on the nearest piece, which
+      // comes last, where the character's own position is worth more.
       const where =
         index === pieces.length - 1
           ? `${s.toFixed(1)},${e.toFixed(1)},${u.toFixed(1)}`
           : `${piece.s},${piece.e}`;
       write(
-        // The fraction says where in its cell the piece stands, and one decimal
-        // of it is what separates two characters sharing a column at any
-        // distance worth looking at — not the sixteen digits a double prints.
+        // one decimal of the fraction is enough to separate two characters
+        // sharing a column, where a double prints sixteen
         where,
         piece.zIndex.toFixed(1),
         slicing!.x + x / covered,
@@ -1207,6 +1201,7 @@ export class Map extends Container {
 
   public destroy(options?: { children?: boolean; texture?: boolean }) {
     this.character?.destroy();
+    this.character = undefined;
     // they live in the block, which is dissolved without destroying what it
     // was only ever lent
     for (const piece of this.shadowPieces) piece.destroy();
