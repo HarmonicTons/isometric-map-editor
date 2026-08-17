@@ -122,13 +122,15 @@ const columnFilter = (tint: number): ColorMatrixFilter => {
   return filter;
 };
 
-/**
- * Shared, and built on first use: a filter holds no per-object state, and
- * building one compiles a shader, which the headless tests have no context for.
- */
+/** Shared, and built on first use: a filter holds no per-object state */
 const PIECE_FILTERS: ColorMatrixFilter[] = [];
 
-const filterOf = (piece: EntityColumnPiece) => {
+const filterOf = (piece: EntityColumnPiece): ColorMatrixFilter | undefined => {
+  // Building one compiles a shader, and that wants a canvas. There is none in
+  // node, where a test may still turn the overlay on to look at the rest of
+  // what it draws — the colours are the one part of it a headless run cannot
+  // see anyway.
+  if (typeof document === "undefined") return undefined;
   const index = (((piece.s % 2) + 2) % 2) * 2 + (((piece.e % 2) + 2) % 2);
   return (PIECE_FILTERS[index] ??= columnFilter(PIECE_TINTS[index]));
 };

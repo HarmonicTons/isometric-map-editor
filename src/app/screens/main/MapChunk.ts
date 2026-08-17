@@ -43,6 +43,14 @@ export class MapChunk extends Container {
    */
   public highestLevel = -1;
 
+  /**
+   * Bumped whenever `cells` changes, so that anything derived from the whole
+   * chunk can tell in one comparison whether it is still current. Only the
+   * debug chunk-boundary overlay reads it (Map.syncChunkBounds), which is why
+   * it is a counter and not an event: it is asked, never announced.
+   */
+  public revision = 0;
+
   /** Container the views below are drawn in: this chunk, or the live block. */
   private viewHost: Container = this;
   /**
@@ -182,6 +190,7 @@ export class MapChunk extends Container {
     tile.y = xy.y;
     tile.zIndex = globalIso.paintersOrderKey();
     this.cells[iso.toString()] = tile;
+    this.revision++;
     if (!skipFragmentsSetup) {
       this.syncTileAttachment(tile);
     }
@@ -210,6 +219,7 @@ export class MapChunk extends Container {
       );
     }
     this.cells[key] = tile.type;
+    this.revision++;
     this.release(tile);
     tile.destroy({ children: true });
   }
@@ -242,12 +252,14 @@ export class MapChunk extends Container {
       this.highestLevel,
       iso.u + mapObject.objectHeight - 1
     );
+    this.revision++;
     return mapObject;
   }
 
   public removeEntityAt(iso: LocalIsoCoordinates) {
     const cell = this.getCellAt(iso);
     if (cell === undefined) return;
+    this.revision++;
     if (typeof cell === "string") {
       delete this.cells[iso.toString()];
       return;

@@ -113,6 +113,32 @@ export const shadowRuns = (
  */
 export const TOP_FACE_RUNS: ShadowRun[] = runsWhere(() => true);
 
+/**
+ * How wide the edge lines below are, as a fraction of a cell. A thirty-second
+ * gives three pixels a row, which is the 2:1 slope the tile art is drawn on.
+ */
+const EDGE_THICKNESS = 1 / 32;
+
+/**
+ * The pixels along the two edges of a cell's top face that the cell OWNS, for
+ * drawing a line on the boundary between two cells.
+ *
+ * Only the min sides. A cell does not own the strip along its max s and max e
+ * edges: the SEAM bias above hands those to the cell in front, which repaints
+ * them with its own art, so a line drawn there would be eaten by its neighbour.
+ * The measured limit is ds, de <= 0.92, nowhere near 1.
+ *
+ * That costs nothing, because the same boundary is the max side of one cell and
+ * the min side of the next: whatever wants a line on the edge between two cells
+ * draws it from the far one.
+ */
+export const NORTH_EDGE_RUNS: ShadowRun[] = runsWhere(
+  ({ ds }) => ds < EDGE_THICKNESS
+);
+export const WEST_EDGE_RUNS: ShadowRun[] = runsWhere(
+  ({ de }) => de < EDGE_THICKNESS
+);
+
 /** Fill a Graphics with `runs`, replacing whatever it held. */
 export const paintRuns = (shadow: Graphics, runs: ShadowRun[]) => {
   shadow.clear();

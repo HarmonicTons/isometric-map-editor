@@ -22,7 +22,13 @@ import { TileFragmentsTextures } from "./TileFragmentsTextures";
 import { Character, CharacterType } from "./Character";
 import { sliceEntityByColumn } from "./EntityColumns";
 import { debugViewEnabled } from "./DebugView";
-import { paintRuns, ShadowRun, shadowRuns } from "./Shadows";
+import {
+  NORTH_EDGE_RUNS,
+  paintRuns,
+  ShadowRun,
+  shadowRuns,
+  WEST_EDGE_RUNS,
+} from "./Shadows";
 
 export type MapData = {
   objects: Record<string, string>;
@@ -179,6 +185,13 @@ export class Map extends Container {
   /** DEBUG overlay, see syncDepthKeys */
   private depthKeyOverlay?: Container;
   private depthKeyLabels: Text[] = [];
+
+  /** DEBUG overlay, see syncChunkBounds. One line per chunk, drawn on demand. */
+  private chunkBoundsOverlay?: Container;
+  private chunkBounds: Record<
+    IsoString,
+    { line: Graphics; signature: string }
+  > = {};
 
   constructor(
     mapData: MapData,
@@ -1074,6 +1087,95 @@ export class Map extends Container {
   }
 
   /**
+   * DEBUG — a red line along every chunk boundary, laid on the top face of the
+   * tiles that sit on it, so the chunking can be read off the terrain it
+   * follows. Toggled with F10, see DebugView.
+   *
+   * A boundary is exactly where a local coordinate is 0, so a tile knows it
+   * stands on one without looking at a single neighbour, and the line it draws
+   * is the NORTH and WEST edges of its own top face. Those are the edges a cell
+   * owns — see Shadows.NORTH_EDGE_RUNS for why the other two are not usable —
+   * and drawing only the min sides also means one line per boundary rather than
+   * two abutting ones.
+   *
+   * A boundary the live block has dissolved is NOT drawn: while those chunks
+   * lend their cells to one container they really are one for the draw order,
+   * and the overlay is meant to show where it is still cut. The block outline
+   * survives, so it reads as one big chunk following the character.
+   *
+   * One Graphics per chunk, rebuilt only when what it would draw has changed —
+   * the chunk's own cells, or which of its two edges the block has swallowed,
+   * since the block moves without any chunk changing. All of them in an overlay
+   * above the map rather than inside the chunks: a line left in a chunk would
+   * sink under the block exactly around the character. Being above everything
+   * it also shows through the terrain in front of it, which for finding a
+   * boundary is worth more than looking solid.
+   */
+  private syncChunkBounds() {
+    if (!debugViewEnabled()) {
+      if (this.chunkBoundsOverlay) this.chunkBoundsOverlay.visible = false;
+      return;
+    }
+    if (!this.chunkBoundsOverlay) {
+      this.chunkBoundsOverlay = new Container();
+      // above every chunk, and just under the depth key labels
+      this.chunkBoundsOverlay.zIndex = Number.MAX_SAFE_INTEGER - 1;
+      this.addChild(this.chunkBoundsOverlay);
+    }
+    this.chunkBoundsOverlay.visible = true;
+
+    for (const key of Object.keys(this.chunkBounds) as IsoString[]) {
+      if (this.chunks[key]) continue;
+      this.chunkBounds[key].line.destroy();
+      delete this.chunkBounds[key];
+    }
+
+    const block = this.block;
+    const merged = (s: number, e: number) =>
+      block !== undefined &&
+      s >= block.origin.s &&
+      s < block.origin.s + BLOCK_SIDE &&
+      e >= block.origin.e &&
+      e < block.origin.e + BLOCK_SIDE;
+
+    for (const key of Object.keys(this.chunks) as IsoString[]) {
+      const chunk = this.chunks[key];
+      const { s: cs, e: ce } = chunk.chunkIsoCoordinates;
+      // each edge is a boundary with one neighbour: gone if the block holds both
+      const north = !(merged(cs, ce) && merged(cs - 1, ce));
+      const west = !(merged(cs, ce) && merged(cs, ce - 1));
+      const drawn = (this.chunkBounds[key] ??= {
+        line: this.chunkBoundsOverlay.addChild(
+          new Graphics({ eventMode: "none" })
+        ),
+        signature: "",
+      });
+      const signature = `${chunk.revision},${north},${west}`;
+      if (drawn.signature === signature) continue;
+      drawn.signature = signature;
+      drawn.line.clear();
+      for (const cellKey of Object.keys(chunk.cells) as IsoString[]) {
+        const local = LocalIsoCoordinates.fromString(cellKey);
+        if (local.s !== 0 && local.e !== 0) continue;
+        const iso = chunk.toGlobalIsoCoordinates(local);
+        // only a top face that is actually drawn: a buried tile has none, and
+        // a map object is not a face at all
+        if (!this.isTileAt(iso) || this.isTileAt(iso.move("up"))) continue;
+        if (!this.isInShell(iso)) continue;
+        const xy = iso.toXY();
+        const runs = [
+          ...(north && local.s === 0 ? NORTH_EDGE_RUNS : []),
+          ...(west && local.e === 0 ? WEST_EDGE_RUNS : []),
+        ];
+        for (const run of runs) {
+          drawn.line.rect(xy.x + run.x, xy.y + run.y, run.width, 1);
+        }
+      }
+      drawn.line.fill({ color: 0xff0000, alpha: 1 });
+    }
+  }
+
+  /**
    * DEBUG — writes the depth key on every cell around the character and on
    * every piece of its sprite, so the draw order can be read off the screen.
    * Toggled with F10, see DebugView. Only the cells the character can reach are
@@ -1196,6 +1298,7 @@ export class Map extends Container {
     // cosmetics first: it picks the animation frame the view is cut from
     this.updateCosmetics(time);
     this.syncView();
+    this.syncChunkBounds();
     this.syncDepthKeys();
   }
 
