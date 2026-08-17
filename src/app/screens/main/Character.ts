@@ -1,4 +1,12 @@
-import { Container, Mesh, MeshGeometry, Texture } from "pixi.js";
+import type { ColorMatrix } from "pixi.js";
+import {
+  Color,
+  ColorMatrixFilter,
+  Container,
+  Mesh,
+  MeshGeometry,
+  Texture,
+} from "pixi.js";
 import { GlobalIsoCoordinates, IsoCoordinates } from "./IsometricCoordinate";
 import { NoTextureFoundError } from "./NoTextureFoundError";
 import type {
@@ -67,16 +75,81 @@ const NEUTRAL_FRAME = 2;
 const CELLS_PER_FRAME = 0.4;
 
 /**
- * DEBUG — one tint per column while the depth order overlay is on, so where the
- * sprite is cut is visible at a glance. Laid out as a checkerboard over (s, e)
- * rather than by the order the pieces come in, so that a piece keeps its colour
- * while the character walks and two neighbouring columns never share one.
+ * DEBUG — one colour per column while the depth order overlay is on, so where
+ * the sprite is cut is visible at a glance. Laid out as a checkerboard over
+ * (s, e) rather than by the order the pieces come in, so that a piece keeps its
+ * colour while the character walks and two neighbouring columns never share one.
  * See DebugView.
  */
 const PIECE_TINTS = [0xff6b6b, 0x6bc8ff, 0xffd76b, 0x8cff8c];
 
-const tintOf = (piece: EntityColumnPiece) =>
-  PIECE_TINTS[(((piece.s % 2) + 2) % 2) * 2 + (((piece.e % 2) + 2) % 2)];
+/**
+ * How much of the sprite's own shading survives, the rest being a flat floor of
+ * the column's colour.
+ *
+ * At 1 the darkest pixels come out black and the columns under them are
+ * indistinguishable; at 0 the sprite is four flat silhouettes and its shape is
+ * gone. This reads the cut first and the art second.
+ */
+const SHADING = 0.55;
+
+/** Rec. 709, so that the sprite's shading survives at the brightness it had */
+const [LUMA_R, LUMA_G, LUMA_B] = [0.2126, 0.7152, 0.0722];
+
+/**
+ * The colour of a column as a filter: drop the sprite to its luminance, then
+ * paint that luminance back in the column's colour.
+ *
+ * `mesh.tint` cannot do this on its own. A tint MULTIPLIES, so it can only ever
+ * take colour away: an all-red character stays red under all four tints — the
+ * blue and green ones simply turn it black — and the cut is invisible, which is
+ * the whole point of the overlay. Throwing the sprite's own hue away FIRST is
+ * what makes four columns four colours whatever the art.
+ *
+ * It has to be one matrix rather than a desaturation on top of a tint: a filter
+ * runs on what the mesh already rendered, tint included, so desaturating after
+ * would grey out the very colour it is meant to show.
+ */
+const columnFilter = (tint: number): ColorMatrixFilter => {
+  const filter = new ColorMatrixFilter();
+  const [r, g, b] = new Color(tint).toArray();
+  // out.channel = channel * (SHADING * luma + (1 - SHADING)) — the last term of
+  // a row is a constant the shader adds, which is what makes the floor affine
+  // rather than a second pass
+  const row = (channel: number) =>
+    [
+      LUMA_R * SHADING * channel,
+      LUMA_G * SHADING * channel,
+      LUMA_B * SHADING * channel,
+      0,
+      (1 - SHADING) * channel,
+    ] as const;
+  // alpha carried through untouched, so the silhouette is unchanged
+  filter.matrix = [
+    ...row(r),
+    ...row(g),
+    ...row(b),
+    0,
+    0,
+    0,
+    1,
+    0,
+  ] as ColorMatrix;
+  return filter;
+};
+
+/**
+ * Shared, and built on first use: a filter holds no per-object state, so four
+ * are enough for any number of characters — and building one compiles a shader,
+ * which the headless tests have no context for and no reason to want, the
+ * overlay being off there.
+ */
+const PIECE_FILTERS: ColorMatrixFilter[] = [];
+
+const filterOf = (piece: EntityColumnPiece) => {
+  const index = (((piece.s % 2) + 2) % 2) * 2 + (((piece.e % 2) + 2) % 2);
+  return (PIECE_FILTERS[index] ??= columnFilter(PIECE_TINTS[index]));
+};
 
 /**
  * One piece of the character's sprite: what it shows over a single column of
@@ -378,7 +451,11 @@ export class Character {
     if (piece.mesh.texture !== this.animationTexture) {
       piece.mesh.texture = this.animationTexture;
     }
-    piece.mesh.tint = debugViewEnabled() ? tintOf(cut) : 0xffffff;
+    const filter = debugViewEnabled() ? filterOf(cut) : undefined;
+    // assigning rebuilds the effect list, so only when it actually changed
+    if (piece.mesh.filters?.[0] !== filter) {
+      piece.mesh.filters = filter ? [filter] : [];
+    }
     // a cut only changes when the character moves, and the buffers are the
     // costly part of a piece: a still frame refills nothing
     if (piece.filledFrom !== cut) {
