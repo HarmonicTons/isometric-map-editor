@@ -109,7 +109,7 @@ export class IsoCoordinates {
  * it. Wide enough to swallow the error of adding a few fractions together,
  * far narrower than anything a position can meaningfully express.
  */
-const EDGE = 1e-9;
+export const EDGE = 1e-9;
 
 /**
  * An axis-aligned box in iso space, used as a hitbox.
@@ -191,24 +191,23 @@ export class IsoBox {
  * offsets at which one cell hides another.
  *
  * What the ratio does decide is how much room is left BETWEEN two cells, and
- * that is what anything standing across cells needs. Height is weighted as low
- * as it can be here, so a character — two levels tall for about one diagonal —
- * is left almost none and has to be cut into bands to be drawn correctly.
- * Measured against a ratio of 10 / 7, which leaves it much more: 42 % of the
- * positions need no cut at all instead of 36 %, but the mean band count is
- * worse, 1.90 against 1.68. It buys nothing clear.
+ * that is what anything standing across cells needs. Height weighted as low as
+ * it can be leaves a whole unit between one cell of a column and the next,
+ * which is what a character's pieces are keyed inside of — see
+ * EntityColumns.subCellKey.
  *
- * It could not be switched anyway, because it moves the same room away from
- * somewhere else: a MapObject taller than one cell carries the key of its base
+ * It also moves that room away from somewhere else, which is what stops it
+ * being tuned: a MapObject taller than one cell carries the key of its base
  * cell while its sprite covers its whole height (MapChunk.createMapObject), and
  * only survives that because a whole column of cells fits between two diagonals
- * here. At 10 / 7 it no longer does, and the trees of koring-wood and
- * deti-plains change where they sort against the cliffs behind them. Slicing
- * tall objects the way characters are sliced is what would unlock this.
+ * here. At a ratio of 10 / 7 it no longer does, and the trees of koring-wood
+ * and deti-plains change where they sort against the cliffs behind them.
+ * Cutting tall objects by column the way characters are cut is what would
+ * unlock this.
  *
  * Whole numbers, because anything standing across cells takes a key strictly
- * between two of them by adding a half, which only never ties if cell keys are
- * integers.
+ * between two of them by adding a fraction, which only never ties if cell keys
+ * are integers.
  */
 const DIAGONAL_WEIGHT = MAP_MAX_HEIGHT;
 const HEIGHT_WEIGHT = 1;
@@ -233,7 +232,7 @@ export class GlobalIsoCoordinates extends IsoCoordinates {
    * Depth key of this cell, for the zIndex of whatever displays it.
    *
    * Deliberately defined on global coordinates only: the live block draws the
-   * cells of four chunks and the bands of a character in one container, so
+   * cells of four chunks and the pieces of a character in one container, so
    * every key that meets there has to be counted from the same origin. Keying
    * a tile on its chunk-local coordinates instead would make those families
    * incomparable.

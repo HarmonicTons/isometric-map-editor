@@ -1,7 +1,11 @@
 import { Container, Mesh, MeshGeometry, Texture } from "pixi.js";
 import { GlobalIsoCoordinates, IsoCoordinates } from "./IsometricCoordinate";
 import { NoTextureFoundError } from "./NoTextureFoundError";
-import { maxBands, type EntityBand, type EntitySlices } from "./EntityBands";
+import type {
+  EntityColumnPiece,
+  EntityColumnSlices,
+  EntityShape,
+} from "./EntityColumns";
 import { debugViewEnabled } from "./DebugView";
 
 /**
@@ -31,13 +35,16 @@ const directionKey: Record<CharacterDirection, string> = {
  * to be the volume collision keeps clear, or a wall the character is pressed
  * against would interpenetrate it and end up with no depth order at all.
  * Whatever the sprite draws outside its silhouette is ordered by
- * approximation; EntityBands.test.ts measures how much that is.
+ * approximation; EntityColumns.test.ts counts how much that is, as offSprite.
  */
 const CHARACTER_HITBOX: Record<string, IsoCoordinates> = {
   default: new IsoCoordinates(0.8, 0.8, 1.9),
-  "cube": new IsoCoordinates(0.99, 0.99, 2),
+  "cube-medium": new IsoCoordinates(0.99, 0.99, 2),
+  "cube-large": new IsoCoordinates(1.99, 1.99, 4),
+  "template-1x1x2": new IsoCoordinates(0.99, 0.99, 2),
+  "template-2x2x4": new IsoCoordinates(1.99, 1.99, 4),
   "005-reptincel": new IsoCoordinates(0.6, 0.6, 1.9),
-  "095-onix": new IsoCoordinates(1.8, 1.8, 3.9),
+  "095-onix": new IsoCoordinates(1.9, 1.9, 3.9),
 };
 
 /**
@@ -60,21 +67,30 @@ const NEUTRAL_FRAME = 2;
 const CELLS_PER_FRAME = 0.4;
 
 /**
- * DEBUG — one tint per band while the depth order overlay is on, so where and
- * when the sprite is cut is visible at a glance. See DebugView.
+ * DEBUG — one tint per column while the depth order overlay is on, so where the
+ * sprite is cut is visible at a glance. Laid out as a checkerboard over (s, e)
+ * rather than by the order the pieces come in, so that a piece keeps its colour
+ * while the character walks and two neighbouring columns never share one.
+ * See DebugView.
  */
 const PIECE_TINTS = [0xff6b6b, 0x6bc8ff, 0xffd76b, 0x8cff8c];
 
+const tintOf = (piece: EntityColumnPiece) =>
+  PIECE_TINTS[(((piece.s % 2) + 2) % 2) * 2 + (((piece.e % 2) + 2) % 2)];
+
 /**
- * One piece of the character's sprite: one horizontal band of it, drawn at its
- * own depth key.
+ * One piece of the character's sprite: what it shows over a single column of
+ * the map, drawn at that column's depth key.
  *
- * A mesh rather than a sprite so that the band can be a sub-rectangle of the
- * animation frame without allocating a texture for it. They are pooled, buffers
- * included: only their contents, position and depth ever change.
+ * A mesh rather than a sprite because a piece is not a rectangle — it is a run
+ * of pixels per row of the sprite, one quad each, cut along the boundary
+ * between two columns. They are pooled, buffers included, and sized for the
+ * worst case once: only their contents, position and depth ever change.
  */
 type CharacterPiece = {
   mesh: Mesh<MeshGeometry>;
+  /** the slice its buffers currently hold, so that a still frame refills none */
+  filledFrom?: EntityColumnPiece;
 };
 
 /**
@@ -83,7 +99,8 @@ type CharacterPiece = {
  * Unlike tiles and objects, a character stands at fractional coordinates and
  * straddles cells, so no single depth key is right for its whole sprite. It is
  * therefore not a display object itself: it owns a handful of meshes, one per
- * band of the cut, all drawn in the live block around it. See EntityBands.
+ * column of the map it stands over, all drawn in the live block around it.
+ * See EntityColumns.
  */
 export class Character {
   public readonly type: CharacterType;
@@ -101,7 +118,7 @@ export class Character {
   private walked = 0;
   private walkedFrom?: { s: number; e: number };
   private pieces: CharacterPiece[] = [];
-  private slices?: EntitySlices;
+  private slices?: EntityColumnSlices;
   private slicedAt?: {
     s: number;
     e: number;
@@ -146,14 +163,24 @@ export class Character {
     return texture;
   }
 
-  /** How many bands it is currently cut into */
-  public get bandCount(): number {
-    return this.slices?.bands.length ?? 0;
+  /** How many pieces it is currently cut into */
+  public get pieceCount(): number {
+    return this.slices?.pieces.length ?? 0;
   }
 
   /** The cut as it currently stands. Read by the depth-key debug overlay. */
-  public get slicing(): EntitySlices | undefined {
+  public get slicing(): EntityColumnSlices | undefined {
     return this.slices;
+  }
+
+  /** What the cut is decided from: where it stands and how big it is. */
+  public get shape(): EntityShape {
+    return {
+      iso: this.globalIsoCoordinates,
+      hitbox: this.hitbox,
+      spriteWidth: this.spriteWidth,
+      spriteHeight: this.spriteHeight,
+    };
   }
 
   public get spriteWidth(): number {
@@ -213,7 +240,7 @@ export class Character {
     );
   }
 
-  public setSlices(slices: EntitySlices) {
+  public setSlices(slices: EntityColumnSlices) {
     const { s, e, u } = this.globalIsoCoordinates;
     this.slicedAt = {
       s,
@@ -226,30 +253,22 @@ export class Character {
   }
 
   /**
-   * Draw the character as its current bands, all in `host`, reusing the pooled
-   * meshes. Bands beyond what is needed are detached rather than hidden, so
+   * Draw the character as its current pieces, all in `host`, reusing the pooled
+   * meshes. Pieces beyond what is needed are detached rather than hidden, so
    * that nothing is kept alive by an invisible mesh.
    */
   public render(host: Container) {
     const slices = this.slices;
     if (!slices) return;
-    const most = maxBands(this.spriteHeight);
-    while (this.pieces.length < slices.bands.length) {
-      if (this.pieces.length === most) {
-        // more bands than the lattice can produce: the cut is wrong, not the
-        // position. Keep drawing rather than crash the frame.
-        console.warn(
-          `Character ${this.type} needs more than ${most} bands at ${this.globalIsoCoordinates.toString()}`
-        );
-      }
+    while (this.pieces.length < slices.pieces.length) {
       this.pieces.push(this.createPiece());
     }
-    this.pieces.forEach((piece, index) => {
-      const band = slices.bands[index];
-      if (band) {
-        this.showPiece(piece, slices, band, host, index);
+    this.pieces.forEach((mesh, index) => {
+      const piece = slices.pieces[index];
+      if (piece) {
+        this.showPiece(mesh, slices, piece, host);
       } else {
-        this.detach(piece);
+        this.detach(mesh);
       }
     });
   }
@@ -257,77 +276,121 @@ export class Character {
   public destroy() {
     for (const piece of this.pieces) {
       this.detach(piece);
-      // the texture is the shared animation frame from the atlas: not ours
+      const { geometry } = piece.mesh;
+      // the texture is the shared animation frame from the atlas: not ours.
+      // The geometry is, and Mesh.destroy only drops its reference to it —
+      // buffers and the GPU allocations behind them would outlive the mesh.
       piece.mesh.destroy();
+      geometry.destroy();
     }
     this.pieces = [];
   }
 
   private createPiece(): CharacterPiece {
-    return {
-      mesh: new Mesh({
-        geometry: new MeshGeometry({ shrinkBuffersToFit: false }),
-        texture: this.animationTexture,
-      }),
-    };
+    const geometry = new MeshGeometry({ shrinkBuffersToFit: false });
+    // Left to decide for itself Pixi batches a mesh of at most 100 vertices,
+    // and a piece is one quad per row of the sprite: 128 vertices for a 32
+    // pixel character. Every piece would take a draw call of its own and cut
+    // the live block's tile batch in two on its way past, every frame.
+    //
+    // Asking for it also puts MeshPipe.validateRenderable back on the branch
+    // that compares buffer sizes — for an unbatched mesh it returns early —
+    // which is what makes the fixed sizing in fillGeometry worth anything.
+    geometry.batchMode = "batch";
+    return { mesh: new Mesh({ geometry, texture: this.animationTexture }) };
   }
 
   /**
-   * Fill a piece's mesh with the quad of its band.
+   * Fill a mesh with the runs of one piece, one quad per run.
    *
    * Positions are pixels from the sprite's top-left, UVs the same points in
    * [0, 1] over the animation frame — the texture's own matrix takes care of
    * where that frame sits in the atlas, so a frame change is one assignment
    * and never touches the buffers.
+   *
+   * The buffers are sized once for the worst case and never resized: a piece
+   * can hold at most one run per row of the sprite, because along a row the
+   * column it stands over only ever moves one way. That is not a detail. Pixi
+   * rebuilds a render group's whole instruction set when a BATCHED mesh's
+   * vertex count changes, and the count would otherwise follow the character
+   * around, pixel by pixel — the very thing that made moving cost 170 000
+   * objects a frame. The spare quads collapse to a point instead, and
+   * rasterize nothing. See createPiece for why the mesh is batched at all: at
+   * this size it is not by default, and this paragraph would then be describing
+   * a branch Pixi never reaches.
    */
-  private fillGeometry(piece: CharacterPiece, band: EntityBand) {
+  private fillGeometry(piece: CharacterPiece, cut: EntityColumnPiece) {
     const { geometry } = piece.mesh;
-    if (geometry.indices.length !== 6) {
-      geometry.positions = new Float32Array(8);
-      geometry.uvs = new Float32Array(8);
-      geometry.indices = new Uint32Array([0, 1, 2, 0, 2, 3]);
+    const quads = this.spriteHeight;
+    if (geometry.indices.length !== 6 * quads) {
+      geometry.positions = new Float32Array(8 * quads);
+      geometry.uvs = new Float32Array(8 * quads);
+      const indices = new Uint32Array(6 * quads);
+      for (let quad = 0; quad < quads; quad++) {
+        const corner = quad * 4;
+        indices.set(
+          [corner, corner + 1, corner + 2, corner, corner + 2, corner + 3],
+          quad * 6
+        );
+      }
+      geometry.indices = indices;
+      geometry.indexBuffer.update();
     }
-    const top = band.offsetY;
-    const bottom = top + band.height;
-    const right = this.spriteWidth;
+    const { positions, uvs } = geometry;
+    const width = this.spriteWidth;
     const height = this.spriteHeight;
-    // top-left, top-right, bottom-right, bottom-left
-    geometry.positions.set([0, top, right, top, right, bottom, 0, bottom]);
-    geometry.uvs.set([
-      0,
-      top / height,
-      1,
-      top / height,
-      1,
-      bottom / height,
-      0,
-      bottom / height,
-    ]);
+    cut.runs.forEach((run, quad) => {
+      const left = run.x;
+      const right = run.x + run.width;
+      const top = run.y;
+      const bottom = run.y + 1;
+      // top-left, top-right, bottom-right, bottom-left
+      positions.set(
+        [left, top, right, top, right, bottom, left, bottom],
+        quad * 8
+      );
+      uvs.set(
+        [
+          left / width,
+          top / height,
+          right / width,
+          top / height,
+          right / width,
+          bottom / height,
+          left / width,
+          bottom / height,
+        ],
+        quad * 8
+      );
+    });
+    positions.fill(0, cut.runs.length * 8);
+    uvs.fill(0, cut.runs.length * 8);
     geometry.getBuffer("aPosition").update();
     geometry.getBuffer("aUV").update();
-    geometry.indexBuffer.update();
   }
 
   private showPiece(
     piece: CharacterPiece,
-    slices: EntitySlices,
-    band: EntityBand,
-    host: Container,
-    index: number
+    slices: EntityColumnSlices,
+    cut: EntityColumnPiece,
+    host: Container
   ) {
     if (piece.mesh.texture !== this.animationTexture) {
       piece.mesh.texture = this.animationTexture;
     }
-    piece.mesh.tint = debugViewEnabled()
-      ? PIECE_TINTS[index % PIECE_TINTS.length]
-      : 0xffffff;
-    this.fillGeometry(piece, band);
+    piece.mesh.tint = debugViewEnabled() ? tintOf(cut) : 0xffffff;
+    // a cut only changes when the character moves, and the buffers are the
+    // costly part of a piece: a still frame refills nothing
+    if (piece.filledFrom !== cut) {
+      this.fillGeometry(piece, cut);
+      piece.filledFrom = cut;
+    }
 
     // re-adding an existing child moves it to the end of the list every frame
     if (piece.mesh.parent !== host) host.addChild(piece.mesh);
     piece.mesh.x = slices.x;
     piece.mesh.y = slices.y;
-    piece.mesh.zIndex = band.zIndex;
+    piece.mesh.zIndex = cut.zIndex;
   }
 
   private detach(piece: CharacterPiece) {

@@ -3,8 +3,8 @@
  *
  * Two overlays on the same switch, because neither says much without the
  * other: every cell around the character gets its depth key written on it
- * (Map.syncDepthKeys), and every band of the character's sprite gets its own
- * tint and its own key (Character.showPiece). Together they show which band
+ * (Map.syncDepthKeys), and every piece of the character's sprite gets its own
+ * tint and its own key (Character.showPiece). Together they show which piece
  * was given which key, and against which cells.
  *
  * Off by default, and off everywhere outside a browser: the tests and the

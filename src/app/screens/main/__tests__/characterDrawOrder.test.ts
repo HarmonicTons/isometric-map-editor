@@ -6,7 +6,7 @@ import { MapData } from "../Map";
 /**
  * End-to-end depth order of a character, asserted on rendered pixels only.
  *
- * EntityBands has its own exhaustive test, but it can only check the cut
+ * EntityColumns has its own exhaustive test, but it can only check the cut
  * against its own idea of what a tile's zIndex is. This one goes through the
  * real Map and MapChunk instead, and never looks at a key: it renders the same
  * scene with and without the character and asks who won on the pixels they
@@ -151,7 +151,7 @@ describe("character draw order", () => {
   });
 
   it("draws the same thing however the map is cut into chunks", () => {
-    // The decisive one. A single huge chunk puts every cell and every band of
+    // The decisive one. A single huge chunk puts every cell and every piece of
     // the character in one container sorted by the global depth key, which is
     // exact by construction; the real chunk size has to reproduce it pixel for
     // pixel, including where the character straddles the corner where four

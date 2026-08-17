@@ -20,7 +20,7 @@ import { MapObject, MapObjectType } from "./MapObject";
 import { Tile, TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 import { Character, CharacterType } from "./Character";
-import { sliceEntity } from "./EntityBands";
+import { sliceEntityByColumn } from "./EntityColumns";
 import { debugViewEnabled } from "./DebugView";
 import { paintRuns, ShadowRun, shadowRuns } from "./Shadows";
 
@@ -129,9 +129,9 @@ export const walkVelocity = (
  * anyway.
  *
  * Two chunks of side means the character is never closer than half a chunk to
- * the block's edge, against the two cells a constraining cell is ever away
- * from it (EntityBands.test.ts, "is never constrained by a cell more than two
- * cells away").
+ * the block's edge — four cells, against the two a cell constraining it is ever
+ * away from it (EntityColumns.test.ts, "is never constrained by a cell more
+ * than two cells away").
  */
 const BLOCK_SIDE = 2;
 
@@ -869,9 +869,9 @@ export class Map extends Container {
    * across two of them cannot express — it needs to come after a cell of one
    * and before a cell of the other. So while it is there, those chunks stop
    * being separate containers: they lend their cells to one block, which sorts
-   * cells and character bands alike by the global depth key. That is exactly
-   * the order sliceEntity assumes, which is why it needs to know nothing about
-   * chunks.
+   * cells and character pieces alike by the global depth key. That is exactly
+   * the order sliceEntityByColumn assumes, which is why it needs to know
+   * nothing about chunks.
    *
    * The chunks outside the block keep being drawn atomically, which is what
    * leaves the door open to baking them into a single texture one day.
@@ -961,9 +961,10 @@ export class Map extends Container {
     // cell in front, which is drawn after the character — and a few dark
     // pixels land on its feet.
     const radius = Math.min(character.hitbox.s, character.hitbox.e) / 2;
-    // On whole pixels, like the sprite it belongs to (EntityBands.placeSprite):
-    // a shadow that slid by fractions of a pixel under a sprite that snaps
-    // would shimmer, and would have to be rasterized again every single frame.
+    // On whole pixels, like the sprite it belongs to (EntityColumns.placeSprite
+    // rounds that one): a shadow that slid by fractions of a pixel under a
+    // sprite that snaps would shimmer, and would have to be rasterized again
+    // every single frame.
     // The projection is what is rounded — x moves a pixel per 1/16 of a cell
     // of (e − s), y per 1/8 of a cell of (e + s) — and inverted back.
     const across = Math.round(16 * (iso.e - iso.s)) / 16;
@@ -988,10 +989,11 @@ export class Map extends Container {
         if (ground === undefined) continue;
         const runs = shadowRuns(cs, ce, centre, radius);
         if (runs.length === 0) continue;
-        // Over the cell it lies on, under the character standing above it. A
-        // quarter and not a half: half is what a character's own bands take
-        // when they sit just above a cell (EntityBands), and the shadow has to
-        // stay under its character rather than tie with it.
+        // Over the cell it lies on, and under the character standing above
+        // it: the ground is a whole level below the cell the character's own
+        // pieces are keyed from, and they take a fraction above that one
+        // (EntityColumns.subCellKey), so the two are three quarters apart at
+        // the very least. The quarter only has to clear the cell it lies on.
         this.paintShadow(used++, block, runs, {
           at: new GlobalIsoCoordinates(cs, ce, ground).toXY(),
           zIndex: paintersOrderKey(cs, ce, ground) + 0.25,
@@ -1040,9 +1042,9 @@ export class Map extends Container {
 
   /**
    * A character straddles cells, so it cannot be a single sprite with a single
-   * depth key: it is cut into horizontal bands, each drawn at the key its rows
-   * need. They all go into the live block, whose cells are sorted by that same
-   * key — see syncBlock.
+   * depth key: it is cut into one piece per column of the map it stands over,
+   * each drawn at that column's key. They all go into the live block, whose
+   * cells are sorted by that same key — see syncBlock.
    */
   private syncView() {
     const character = this.character;
@@ -1054,14 +1056,7 @@ export class Map extends Container {
     const block = this.syncBlock(character.globalIsoCoordinates);
     this.syncShadow(block, character);
     if (character.needsSlicing) {
-      character.setSlices(
-        sliceEntity({
-          iso: character.globalIsoCoordinates,
-          hitbox: character.hitbox,
-          spriteWidth: character.spriteWidth,
-          spriteHeight: character.spriteHeight,
-        })
-      );
+      character.setSlices(sliceEntityByColumn(character.shape));
     }
     character.render(block);
   }
@@ -1079,7 +1074,7 @@ export class Map extends Container {
 
   /**
    * DEBUG — writes the depth key on every cell around the character and on
-   * every band of its sprite, so the order they are drawn in can be read off
+   * every piece of its sprite, so the order they are drawn in can be read off
    * the screen. Toggled with F10, see DebugView.
    *
    * Only the cells the character can reach are labelled: a whole map's worth of
@@ -1164,20 +1159,35 @@ export class Map extends Container {
       }
     }
     const slicing = character.slicing;
-    const bands = slicing?.bands ?? [];
-    bands.forEach((band, index) => {
-      // A band belongs to no cell, so what places it is the rows it covers —
-      // except the bottom one, where reading the character's own position
-      // right next to the cell it stands on is worth more.
+    const pieces = slicing?.pieces ?? [];
+    pieces.forEach((piece, index) => {
+      // A piece is a run of pixels per row, not a rectangle, so what places its
+      // label is the middle of the pixels it actually covers: the centre of the
+      // bounding box of a piece cut along a diagonal regularly falls inside the
+      // neighbouring one.
+      let covered = 0;
+      let x = 0;
+      let y = 0;
+      for (const run of piece.runs) {
+        covered += run.width;
+        x += (run.x + run.width / 2) * run.width;
+        y += (run.y + 0.5) * run.width;
+      }
+      // Which column the piece stands over — except on the nearest of them,
+      // which comes last, where reading the character's own position right next
+      // to the cell it stands on is worth more.
       const where =
-        index === bands.length - 1
+        index === pieces.length - 1
           ? `${s.toFixed(1)},${e.toFixed(1)},${u.toFixed(1)}`
-          : `${band.offsetY}-${band.offsetY + band.height - 1}`;
+          : `${piece.s},${piece.e}`;
       write(
+        // The fraction says where in its cell the piece stands, and one decimal
+        // of it is what separates two characters sharing a column at any
+        // distance worth looking at — not the sixteen digits a double prints.
         where,
-        `${band.zIndex}`,
-        slicing!.x + character.spriteWidth / 2,
-        slicing!.y + band.offsetY + band.height / 2,
+        piece.zIndex.toFixed(1),
+        slicing!.x + x / covered,
+        slicing!.y + y / covered,
         0xffe066
       );
     });

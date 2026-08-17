@@ -246,11 +246,11 @@ describe("the character's shadow", () => {
     for (const piece of shadowsOf(map)) {
       // a quarter above the key of the cell it lies on, so over that cell...
       expect(piece.zIndex % 1).toBe(0.25);
-      // ...and under every band of the character, which is what keeping the
+      // ...and under every piece of the character, which is what keeping the
       // shadow inside the footprint buys: no cell it lands on is ever in
       // front of the character it belongs to.
-      for (const band of map.character!.slicing!.bands) {
-        expect(band.zIndex).toBeGreaterThan(piece.zIndex);
+      for (const cut of map.character!.slicing!.pieces) {
+        expect(cut.zIndex).toBeGreaterThan(piece.zIndex);
       }
     }
     map.destroy({ children: true });
@@ -288,7 +288,7 @@ describe("the character's shadow", () => {
     // that can reach the sprite at all.
     const map = landed();
     const lowest = Math.min(
-      ...map.character!.slicing!.bands.map((band) => band.zIndex)
+      ...map.character!.slicing!.pieces.map((cut) => cut.zIndex)
     );
     expect(Math.min(...shadowsOf(map).map((p) => p.zIndex))).toBeLessThan(
       lowest

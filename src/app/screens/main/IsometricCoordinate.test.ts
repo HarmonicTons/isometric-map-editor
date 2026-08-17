@@ -91,7 +91,7 @@ describe("IsoCoordinates", () => {
     });
 
     it("is counted from the map origin, not from any chunk", () => {
-      // The live block draws the cells of four chunks and the bands of a
+      // The live block draws the cells of four chunks and the pieces of a
       // character in one container, so every key that meets there must share
       // one origin. Keying a cell on its chunk-local coordinates once made
       // characters draw over the tiles in front of them.

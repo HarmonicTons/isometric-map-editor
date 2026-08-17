@@ -169,7 +169,7 @@ describe("the live block", () => {
       characters: { "0,7.2,1": CHARACTER },
     } as MapData);
     map.update(tick);
-    // Everything the map draws that is a cell. The character's bands (meshes)
+    // Everything the map draws that is a cell. The character's pieces (meshes)
     // and its shadow (graphics) are the two things whose count varies as it
     // walks, and neither of them is a cell.
     const cellsDrawn = () =>
@@ -226,7 +226,7 @@ describe("the live block", () => {
     expect(warn).toHaveBeenCalled();
     // exactly the pieces of the surviving character, nothing orphaned
     map.update(tick);
-    expect(characterPieces(map)).toHaveLength(map.character!.bandCount);
+    expect(characterPieces(map)).toHaveLength(map.character!.pieceCount);
     map.destroy({ children: true });
     warn.mockRestore();
   });
