@@ -10,6 +10,18 @@ import type { TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 import { debugViewEnabled, listenForDebugViewToggle } from "./DebugView";
 import { listenForKeyboardInput } from "./Keyboard";
+import { sampleGamepad } from "./Gamepad";
+import type { CameraMode, Pan } from "./Camera";
+import {
+  DEFAULT_ZOOM,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  cameraPan,
+  cameraZoom,
+  groundToWatch,
+  nextCameraMode,
+  settleLevel,
+} from "./Camera";
 
 /** How long the frame rate is averaged over before it is shown, in ms */
 const FPS_WINDOW = 500;
@@ -38,6 +50,17 @@ export class GameScreen extends Container {
 
   public mapContainer: Viewport;
   private paused = false;
+  /** What the camera has been asked for but not yet spent. See cameraPan. */
+  private carriedPan: Pan = { x: 0, y: 0 };
+  /** Whether R3 was already in last frame, so a hold recentres once */
+  private recentreHeld = false;
+  /** Free, or pinned to the character. See nextCameraMode. */
+  private cameraMode: CameraMode = "free";
+  /** Where the camera's level is and how fast it is going. See settleLevel. */
+  private followLevel?: number;
+  private followSpeed = 0;
+  /** The last floor the character stood on, which is what a jump is watched from */
+  private lastStoodOn?: number;
   private map?: Map;
   /** DEBUG readout, see syncDebugReadout */
   private debugReadout: Text;
@@ -59,8 +82,14 @@ export class GameScreen extends Container {
       screenHeight: engine().screen.height,
     });
     this.addChild(this.mapContainer);
-    this.mapContainer.drag({ mouseButtons: "middle" }).pinch().wheel();
-    this.mapContainer.setZoom(1);
+    this.mapContainer
+      .drag({ mouseButtons: "middle" })
+      .pinch()
+      .wheel()
+      // the wheel had no bounds either; it just takes so many notches to reach
+      // anywhere absurd that nobody ever did
+      .clampZoom({ minScale: MIN_ZOOM, maxScale: MAX_ZOOM });
+    this.mapContainer.setZoom(DEFAULT_ZOOM);
     const centerX = Math.round(engine().screen.width * 0.5);
     const centerY = Math.round(engine().screen.height * 0.5);
     this.mapContainer.x = centerX;
@@ -232,8 +261,96 @@ export class GameScreen extends Container {
 
   public update(time: Ticker) {
     this.countFrame(time);
+    if (!this.paused) this.moveCamera(time);
     if (!this.paused && this.map) this.map.update(time);
     this.syncDebugReadout();
+  }
+
+  /**
+   * Move the camera with the right stick, where the middle mouse button drags
+   * it. Same viewport, same screen pixels, so the two never disagree.
+   */
+  private moveCamera(time: Ticker) {
+    const pad = sampleGamepad();
+    const seconds = time.deltaMS / 1000;
+    // the press, not the hold
+    const recentred = pad.recentreHeld && !this.recentreHeld;
+    this.recentreHeld = pad.recentreHeld;
+
+    const was = this.cameraMode;
+    this.cameraMode = nextCameraMode(was, { recentred, stick: pad.right });
+    if (recentred) this.mapContainer.setZoom(DEFAULT_ZOOM, true);
+
+    // Zooming is the same in both modes, and about the middle of the screen:
+    // there is no pointer to zoom towards, so whatever is being watched stays
+    // where it is — which is the whole point while following.
+    const zoom = cameraZoom(
+      this.mapContainer.scale.x,
+      pad.zoomIn - pad.zoomOut,
+      seconds
+    );
+    if (zoom !== this.mapContainer.scale.x) {
+      this.mapContainer.setZoom(zoom, true);
+    }
+
+    if (this.cameraMode === "following") {
+      // R3 puts the camera on the character at once; a step taken while it is
+      // already watching is what gets eased
+      if (recentred) {
+        this.followLevel = undefined;
+        this.followSpeed = 0;
+        this.lastStoodOn = undefined;
+      }
+      this.lookAtCharacter(seconds);
+      return;
+    }
+    this.followLevel = undefined;
+    this.followSpeed = 0;
+    this.lastStoodOn = undefined;
+    // what it was pinned to is not owed to a pan that starts now
+    if (was === "following") this.carriedPan = { x: 0, y: 0 };
+    const { move, carried } = cameraPan(this.carriedPan, pad.right, seconds);
+    this.carriedPan = carried;
+    this.mapContainer.x += move.x;
+    this.mapContainer.y += move.y;
+  }
+
+  /**
+   * Put the character in the middle of the screen.
+   *
+   * Landed on whole SCREEN pixels afterwards. The character stands at
+   * fractional cells, so centring on it exactly would leave the map on a
+   * fraction of a pixel — and with nearest-neighbour scaling that makes some
+   * texels a pixel wider than their neighbours, so the whole map crawls as it
+   * walks. Half a pixel of the character being off centre is invisible; every
+   * tile shimmering is not.
+   */
+  private lookAtCharacter(seconds: number) {
+    const centre = this.map?.characterCentre;
+    if (!centre) return;
+    // Straight there the first frame, eased from then on. What is eased is the
+    // LEVEL alone: stepping up a cliff moves it a level at once, where walking
+    // slides the rest of the anchor a few pixels a frame and needs no help.
+    if (centre.grounded) this.lastStoodOn = centre.standing;
+    const watching = groundToWatch(this.lastStoodOn, centre);
+    if (this.followLevel === undefined) {
+      this.followLevel = watching;
+      this.followSpeed = 0;
+    } else {
+      const settled = settleLevel(
+        this.followLevel,
+        this.followSpeed,
+        watching,
+        seconds
+      );
+      this.followLevel = settled.level;
+      this.followSpeed = settled.velocity;
+    }
+    // y falls by 8 pixels a level, so lagging below the ground is a bigger y
+    const y = centre.y + 8 * (centre.standing - this.followLevel);
+    this.mapContainer.moveCenter(centre.x, y);
+    this.mapContainer.x = Math.round(this.mapContainer.x);
+    this.mapContainer.y = Math.round(this.mapContainer.y);
   }
 
   /** Pause gameplay - automatically fired when a popup is presented */

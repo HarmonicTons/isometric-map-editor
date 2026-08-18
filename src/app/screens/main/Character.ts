@@ -209,6 +209,8 @@ export class Character {
   public globalIsoCoordinates: GlobalIsoCoordinates;
   /** How fast it is rising, in cells per second. Negative while falling. */
   public verticalSpeed = 0;
+  /** Whether something under its feet is holding it up */
+  public grounded = true;
   public direction: CharacterDirection;
 
   /** How it is drawn, all of it: sheets, anchors, hitbox */
@@ -381,6 +383,7 @@ export class Character {
     }
 
     this.wasGrounded = step.grounded;
+    this.grounded = step.grounded;
     this.animationTexture = this.textureOf();
   }
 

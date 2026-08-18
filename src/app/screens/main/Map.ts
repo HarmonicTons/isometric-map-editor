@@ -28,6 +28,7 @@ import {
 import { sliceEntityByColumn } from "./EntityColumns";
 import { debugViewEnabled } from "./DebugView";
 import { keyboardInput } from "./Keyboard";
+import { sampleGamepad } from "./Gamepad";
 import {
   NORTH_EDGE_RUNS,
   paintRuns,
@@ -40,6 +41,18 @@ export type MapData = {
   objects: Record<string, string>;
   tiles: Record<string, string>;
   characters: Record<string, string>;
+};
+
+/** What a camera watching the character needs from the map */
+export type CharacterAnchor = {
+  /** where to centre, in map pixels, taken at `standing` */
+  x: number;
+  y: number;
+  /** the level it stands on, or would stand on if it were not in the air */
+  standing: number;
+  /** the level its feet are actually at */
+  feet: number;
+  grounded: boolean;
 };
 
 /**
@@ -787,6 +800,68 @@ export class Map extends Container {
       : Math.max(delta, obstacle[axis] + 1 - box.min[axis]);
   }
 
+  /**
+   * The HIGHEST ground under the cells the character's hitbox covers, or
+   * nothing if there is none within reach.
+   *
+   * The cells of the HITBOX, not of the shadow: the shadow is a disc drawn
+   * INSIDE that square, so a character can be standing squarely on the lip of a
+   * cliff while its disc has already cleared the edge entirely. A camera going
+   * by the shadow would then sit at the bottom of the cliff while the character
+   * is plainly on top of it.
+   *
+   * The highest of them and not the one under its middle, for the same reason:
+   * a corner holds a character up as surely as its centre does.
+   */
+  private groundUnderCharacter(character: Character): number | undefined {
+    const iso = character.globalIsoCoordinates;
+    const cells = IsoBox.standingOn(iso, character.hitbox).cells();
+    let highest: number | undefined;
+    for (let cs = cells.min.s; cs < cells.max.s; cs++) {
+      for (let ce = cells.min.e; ce < cells.max.e; ce++) {
+        const ground = this.groundUnder(cs, ce, iso.u);
+        if (ground === undefined) continue;
+        if (highest === undefined || ground > highest) highest = ground;
+      }
+    }
+    return highest;
+  }
+
+  /**
+   * What a camera asked to look at the character should centre on, in map
+   * pixels.
+   *
+   * Where it STANDS, not where it is: the level comes from the ground under it
+   * rather than from the character itself, so that a jump does not drag the
+   * camera up and back down with it. Everything else about a jump is visible
+   * anyway — it is the ground going still that makes it readable.
+   *
+   * Half its height above that ground, at 4 pixels per level, the projection
+   * being 8 to a level: on its feet, a tall character would sit in the top half
+   * of the screen, and the taller it is the worse.
+   *
+   * The height comes out separately because it is the one part of `y` that
+   * JUMPS — walking slides the rest a few pixels a frame — and because a camera
+   * has to decide for itself what to do with it while the character is off the
+   * ground. See Camera.groundToWatch.
+   */
+  public get characterCentre(): CharacterAnchor | undefined {
+    const character = this.character;
+    if (!character) return undefined;
+    const iso = character.globalIsoCoordinates;
+    // nothing underneath it: nothing better to go by than where it is
+    const ground = this.groundUnderCharacter(character) ?? iso.u - 1;
+    const standing = ground + 1;
+    const xy = new GlobalIsoCoordinates(iso.s, iso.e, standing).toXY();
+    return {
+      x: xy.x + 16,
+      y: xy.y + 16 - 4 * character.hitbox.u,
+      standing,
+      feet: iso.u,
+      grounded: character.grounded,
+    };
+  }
+
   public addCharacterAt(globalIso: GlobalIsoCoordinates, type: CharacterType) {
     if (this.character) {
       // One character per map for now. Without this the previous one would
@@ -806,35 +881,13 @@ export class Map extends Container {
   }
 
   /**
-   * The left stick and the jump button of the first gamepad that is there, or
-   * nothing.
+   * What the player is asking for this frame, from either device.
    *
-   * Polled every frame rather than remembered from `gamepadconnected`: the
-   * browser leaves a null in the slot once a pad is unplugged and fires no
-   * event, so a remembered index crashes on every frame of the ticker.
-   * `jump` is the press, not the hold.
+   * `jump` and `attack` are the press, not the hold: a button held down is one
+   * jump, not one per frame.
    */
-  /** The left stick and the jump button of the first gamepad that is there */
-  private sampleGamepad() {
-    // node has a navigator, but no gamepads on it
-    const gamepad = globalThis.navigator
-      ?.getGamepads?.()
-      .find((pad) => pad !== null);
-    if (!gamepad) return { x: 0, y: 0, jumpHeld: false, attackHeld: false };
-    const [x, y] = gamepad.axes;
-    const deadzone = 0.15;
-    return {
-      x: Math.abs(x) > deadzone ? x : 0,
-      y: Math.abs(y) > deadzone ? y : 0,
-      // 0 is A on an Xbox pad, Cross on a PlayStation one: the standard mapping
-      jumpHeld: gamepad.buttons[0]?.pressed === true,
-      // 2 is X, or Square
-      attackHeld: gamepad.buttons[2]?.pressed === true,
-    };
-  }
-
   private sampleInput() {
-    const pad = this.sampleGamepad();
+    const pad = sampleGamepad();
     const keys = keyboardInput();
     // Added rather than chosen between, so that neither device has to be
     // declared the active one: whichever is at rest contributes nothing, and
@@ -848,8 +901,8 @@ export class Map extends Container {
     this.attackHeld = attackHeld;
 
     return {
-      leftStickX: pad.x + keys.x,
-      leftStickY: pad.y + keys.y,
+      leftStickX: pad.left.x + keys.x,
+      leftStickY: pad.left.y + keys.y,
       jump,
       attack,
     };
@@ -1035,23 +1088,35 @@ export class Map extends Container {
    * the hole beside it — over the tile and the character that ought to hide
    * them. The seams between pieces are closed by the SEAM bias instead.
    */
-  private syncShadow(block: Container, character: Character) {
+  /**
+   * The disc the shadow is cast from, in cells.
+   *
+   * INSIDE the footprint: it keeps the shadow within the cells the hitbox
+   * covers, which can never be in front of the character. A wider one reaches
+   * the cell in front, drawn after the character, and dark pixels land on its
+   * feet.
+   *
+   * On whole pixels, like the sprite (EntityColumns.placeSprite rounds too), or
+   * it shimmers under it and is rasterized again every frame. What is rounded
+   * is the projection — a pixel per 1/16 of a cell of (e − s), per 1/8 of
+   * (e + s) — then inverted back.
+   */
+  private shadowDisc(character: Character) {
     const iso = character.globalIsoCoordinates;
-    // The disc INSIDE the footprint: it keeps the shadow within the cells the
-    // hitbox covers, which can never be in front of the character. A wider one
-    // reaches the cell in front, drawn after the character, and dark pixels
-    // land on its feet.
-    const radius = Math.min(character.hitbox.s, character.hitbox.e) / 2;
-    // On whole pixels, like the sprite (EntityColumns.placeSprite rounds too),
-    // or it shimmers under it and is rasterized again every frame. What is
-    // rounded is the projection — a pixel per 1/16 of a cell of (e − s), per
-    // 1/8 of (e + s) — then inverted back.
     const across = Math.round(16 * (iso.e - iso.s)) / 16;
     const along = Math.round(8 * (iso.e + iso.s)) / 8;
-    const centre = {
-      s: (along - across) / 2 + 0.5,
-      e: (along + across) / 2 + 0.5,
+    return {
+      radius: Math.min(character.hitbox.s, character.hitbox.e) / 2,
+      centre: {
+        s: (along - across) / 2 + 0.5,
+        e: (along + across) / 2 + 0.5,
+      },
     };
+  }
+
+  private syncShadow(block: Container, character: Character) {
+    const iso = character.globalIsoCoordinates;
+    const { radius, centre } = this.shadowDisc(character);
 
     let used = 0;
     for (

@@ -7,12 +7,20 @@ import {
   MapData,
   walkVelocity,
 } from "./Map";
-import { buildHeadlessMap } from "./__tests__/composeMapImage";
+import {
+  buildHeadlessMap,
+  loadCharacterDescriptions,
+} from "./__tests__/composeMapImage";
+import { characterSprites, registerCharacterSprites } from "./characterSprites";
 import {
   GlobalIsoCoordinates,
   IsoBox,
+  IsoCoordinates,
   MAP_MAX_HEIGHT,
 } from "./IsometricCoordinate";
+
+/** Whoever the map is carrying. Nothing here is about which one it is. */
+const SUBJECT = "0004-charmander";
 
 // nothing can press a key in node, so the keyboard is driven straight through
 // the shape Map reads it in. Neutral unless a test says otherwise.
@@ -216,7 +224,7 @@ const floor = (): MapData => {
   for (let s = 2; s <= 6; s++) {
     for (let e = 2; e <= 6; e++) tiles[`${s},${e},0`] = "dirt";
   }
-  return { tiles, objects: {}, characters: { "4,4,6": "0004-charmander" } };
+  return { tiles, objects: {}, characters: { "4,4,6": SUBJECT } };
 };
 
 describe("a character falling onto the ground", () => {
@@ -367,6 +375,8 @@ const cellsUnder = (map: IsometricMap): Set<string> => {
 describe("a character walking into something solid", () => {
   beforeAll(() => {
     vi.spyOn(console, "debug").mockImplementation(() => {});
+    // the doorway test reaches for a description before it builds a map
+    loadCharacterDescriptions();
   });
 
   /** Flat ground, with a one cell pillar standing two tall on the far corner */
@@ -380,7 +390,7 @@ describe("a character walking into something solid", () => {
     return buildHeadlessMap({
       tiles,
       objects: {},
-      characters: { "4,4,6": "0004-charmander" },
+      characters: { "4,4,6": SUBJECT },
     } as MapData);
   };
 
@@ -421,7 +431,7 @@ describe("a character walking into something solid", () => {
     const map = buildHeadlessMap({
       tiles,
       objects: {},
-      characters: { "4,4,6": "0004-charmander" },
+      characters: { "4,4,6": SUBJECT },
     } as MapData);
     const tick = { deltaMS: 1000 / 60, lastTime: 0 } as Ticker;
     for (let frame = 0; frame < 60; frame++) map.update(tick);
@@ -436,16 +446,19 @@ describe("a character walking into something solid", () => {
     map.destroy({ children: true });
   });
 
-  it("gets a two-cell body through a two-cell doorway", () => {
-    // What the footprint margin in the importer is for. Onix is drawn 64 px
-    // across, exactly two cells, and a body exactly as wide as the gap fits it
-    // only when aligned to the last decimal: sliding along the wall then goes
-    // straight past the doorway, for ever, at every speed. The margin makes the
-    // window (gap - footprint) wide instead of nothing.
-    //
-    // It is a NARROW window even so — measured at 15 tries out of 24 starting
-    // offsets with the margin at 0.99. This is the property holding, not a
-    // promise that it always feels good.
+  /**
+   * Ground, and a wall right across it with a doorway of exactly two cells.
+   *
+   * The subject is whatever character is around, given a footprint of its own:
+   * what is under test is the size of the body against the size of the gap, and
+   * tying that to one Pokémon only makes the test break when it is not imported.
+   */
+  const doorway = (footprint: number): IsometricMap => {
+    const sprites = characterSprites(SUBJECT);
+    registerCharacterSprites(SUBJECT, {
+      ...sprites,
+      hitbox: [footprint, footprint, sprites.hitbox[2]],
+    });
     const tiles: Record<string, string> = {};
     for (let s = 0; s <= 20; s++) {
       for (let e = 0; e <= 30; e++) tiles[`${s},${e},0`] = "dirt";
@@ -454,20 +467,126 @@ describe("a character walking into something solid", () => {
       if (e === 4 || e === 5) continue;
       for (let u = 1; u <= 6; u++) tiles[`8,${e},${u}`] = "rock";
     }
-    const map = buildHeadlessMap({
+    return buildHeadlessMap({
       tiles,
       objects: {},
-      characters: { "6,1,1": "0095-onix" },
+      characters: { "6,1,1": SUBJECT },
     } as MapData);
+  };
+
+  /** Walks into the wall, then along it, and says whether it ever got past */
+  const findsTheDoorway = (footprint: number): boolean => {
+    const map = doorway(footprint);
     const tick = { deltaMS: 1000 / 60, lastTime: 0 } as Ticker;
     for (let frame = 0; frame < 60; frame++) map.update(tick);
-
-    // straight down the screen: into the wall, then along it to the doorway
     let through = false;
+    // straight down the screen: into the wall, then along it to the doorway
     walkWith(map, 0, 1, 900, () => {
       if (map.character!.globalIsoCoordinates.s > 9) through = true;
     });
-    expect(through).toBe(true);
+    map.destroy({ children: true });
+    return through;
+  };
+
+  it("gets a two-cell body through a two-cell doorway", () => {
+    const original = characterSprites(SUBJECT);
+    try {
+      // What the footprint margin in the importer is for. A body exactly as
+      // wide as the gap fits it only when aligned to the last decimal, so
+      // sliding along the wall goes straight past the doorway, for ever.
+      expect(findsTheDoorway(2)).toBe(false);
+      // A hair narrower and the window is (gap - footprint) wide instead of
+      // nothing. It is a NARROW window even so — measured at 15 tries out of 24
+      // starting offsets. This is the property holding, not a promise that it
+      // always feels good.
+      expect(findsTheDoorway(2 * 0.99)).toBe(true);
+    } finally {
+      registerCharacterSprites(SUBJECT, original);
+    }
+  });
+});
+
+describe("what the camera looks at when it follows the character", () => {
+  beforeAll(() => {
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+    loadCharacterDescriptions();
+  });
+
+  /** A plateau five levels tall for e <= 4, bare ground beyond it */
+  const cliff = (): IsometricMap => {
+    const tiles: Record<string, string> = {};
+    for (let s = 0; s <= 10; s++) {
+      for (let e = 0; e <= 10; e++) {
+        tiles[`${s},${e},0`] = "dirt";
+        if (e <= 4)
+          for (let u = 1; u <= 4; u++) tiles[`${s},${e},${u}`] = "rock";
+      }
+    }
+    return buildHeadlessMap({
+      tiles,
+      objects: {},
+      characters: { "5,4,5": SUBJECT },
+    } as MapData);
+  };
+
+  it("stays put while the character jumps", () => {
+    const map = cliff();
+    const character = map.character!;
+    /** What a camera aims at. `feet` is deliberately not part of it: it is what
+     * a camera is given so it can decide, not something it follows. */
+    const aim = () => {
+      const { x, y, standing } = map.characterCentre!;
+      return { x, y, standing };
+    };
+    const onTheGround = aim();
+    // straight up, as high as it goes and then some
+    for (const rise of [0.2, 1, 2.5, 5]) {
+      character.globalIsoCoordinates = character.globalIsoCoordinates.add(
+        new IsoCoordinates(0, 0, rise)
+      );
+      expect(aim()).toEqual(onTheGround);
+      // and the feet it reports do rise, which is what tells a camera it is
+      // in the air at all
+      expect(map.characterCentre!.feet).toBeGreaterThan(5);
+    }
+    map.destroy({ children: true });
+  });
+
+  it("keeps to the cliff top when the character's middle is past the edge", () => {
+    const map = cliff();
+    const character = map.character!;
+
+    /**
+     * The level the camera decided the character stands on, read back out of
+     * where it is looking. Walking along e tilts the projection on its own —
+     * eight pixels a cell — so the pixel alone says nothing about the level.
+     */
+    const levelLookedAt = (at: GlobalIsoCoordinates) => {
+      character.globalIsoCoordinates = at;
+      const { y } = map.characterCentre!;
+      return (8 * (at.s + at.e) + 16 - 4 * character.hitbox.u - y) / 8;
+    };
+
+    expect(levelLookedAt(new GlobalIsoCoordinates(5, 4, 5))).toBeCloseTo(5, 6);
+    // its middle sits at e + 0.5, so this hangs it over thin air while its body
+    // is plainly still standing on the plateau
+    expect(levelLookedAt(new GlobalIsoCoordinates(5, 4.6, 5))).toBeCloseTo(
+      5,
+      6
+    );
+    // and once it is properly off the edge, the camera does go down with it
+    expect(levelLookedAt(new GlobalIsoCoordinates(5, 6, 1))).toBeCloseTo(1, 6);
+    map.destroy({ children: true });
+  });
+
+  it("goes by where the character is when there is nothing under it", () => {
+    const tiles: Record<string, string> = { "0,0,0": "dirt" };
+    const map = buildHeadlessMap({
+      tiles,
+      objects: {},
+      characters: { "8,8,4": SUBJECT },
+    } as MapData);
+    expect(map.characterCentre).toBeDefined();
     map.destroy({ children: true });
   });
 });
@@ -586,7 +705,7 @@ describe("the character's shadow", () => {
           if (stepAt === undefined || s < stepAt) tiles[`${s},${e},1`] = "dirt";
         }
       }
-      return { tiles, objects: {}, characters: { "3,4,6": "0004-charmander" } };
+      return { tiles, objects: {}, characters: { "3,4,6": SUBJECT } };
     };
     /** How tall the shadow is with the character straddling s = 5 */
     const spread = (data: MapData) => {

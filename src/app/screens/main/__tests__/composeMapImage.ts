@@ -234,7 +234,7 @@ const collectBlits = (
  * fetches them one at a time. Reading them all is what lets a test name a
  * character and get on with it.
  */
-const loadCharacters = () => {
+export const loadCharacterDescriptions = () => {
   for (const file of readdirSync(charactersDir)) {
     if (!file.endsWith(".json")) continue;
     const type = file.replace(/\.json$/, "");
@@ -261,7 +261,7 @@ export const buildHeadlessMap = (
   chunksSize?: number
 ): IsometricMap => {
   const textures = loadAssets().textureNames;
-  loadCharacters();
+  loadCharacterDescriptions();
   return new IsometricMap(
     mapData,
     new TileFragmentsTextures(textures),
