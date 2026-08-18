@@ -41,7 +41,7 @@ const scene = ({
   return {
     tiles,
     objects: {},
-    characters: withCharacter ? { [CHARACTER]: "005-reptincel" } : {},
+    characters: withCharacter ? { [CHARACTER]: "0004-charmander" } : {},
   };
 };
 
@@ -133,12 +133,12 @@ describe("character draw order", () => {
     const characterOnly = composeMapImage({
       tiles: flushTiles,
       objects: {},
-      characters: { "7.2,15,1": "005-reptincel" },
+      characters: { "7.2,15,1": "0004-charmander" },
     });
     const both = composeMapImage({
       tiles: walled,
       objects: {},
-      characters: { "7.2,15,1": "005-reptincel" },
+      characters: { "7.2,15,1": "0004-charmander" },
     });
     const contested = intersect(
       changedPixels(wallOnly, bare),
@@ -173,7 +173,7 @@ describe("character draw order", () => {
       return {
         tiles,
         objects: {},
-        characters: { [`${s},${e},1`]: "005-reptincel" },
+        characters: { [`${s},${e},1`]: "0004-charmander" },
       };
     };
 

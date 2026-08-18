@@ -27,6 +27,9 @@ public/assets
 .assetpack
 src/manifest.json
 
+# Sprite dumps: scripts/import-pokemon-sprites fetches them back
+raw-sprites
+
 # Image snapshot failure artifacts
 *.actual.png
 *.diff.png

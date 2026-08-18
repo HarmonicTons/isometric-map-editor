@@ -42,7 +42,7 @@ const CHARACTER: Subject = {
   spriteHeight: 32,
 };
 
-/** The size of onix, the largest thing on the map */
+/** The largest thing the map has to place */
 const GIANT: Subject = {
   name: "giant",
   hitbox: new IsoCoordinates(1.8, 1.8, 3.9),
@@ -52,27 +52,38 @@ const GIANT: Subject = {
 
 /**
  * The pair that caught the anchoring bug: the same art, one cell and two cells
- * across, drawn at exactly twice the size.
+ * across, drawn at exactly twice the size. Shapes rather than assets — nothing
+ * here needs a texture, and a box of a size known exactly is what makes the
+ * partition checkable at all.
  */
 const CUBE_MEDIUM: Subject = {
-  name: "cube-medium",
+  name: "one-cell box",
   hitbox: new IsoCoordinates(0.99, 0.99, 2),
   spriteWidth: 32,
   spriteHeight: 32,
 };
 
 const CUBE_LARGE: Subject = {
-  name: "cube-large",
+  name: "two-cell box",
   hitbox: new IsoCoordinates(1.99, 1.99, 4),
   spriteWidth: 64,
   spriteHeight: 64,
 };
 
+// These subjects stand in for art drawn as the projection of their own box: it
+// is centred on the box, and its bottom edge is the box's lowest corner, 4 per
+// cell of footprint below the middle of the base. Real characters carry an
+// anchor per frame instead; what is being checked here is the partition, which
+// only needs the sprite to be somewhere exact.
 const shape = (subject: Subject, iso: GlobalIsoCoordinates): EntityShape => ({
   iso,
   hitbox: subject.hitbox,
   spriteWidth: subject.spriteWidth,
   spriteHeight: subject.spriteHeight,
+  anchorX: subject.spriteWidth / 2,
+  anchorY:
+    subject.spriteHeight -
+    4 * (Math.ceil(subject.hitbox.s) + Math.ceil(subject.hitbox.e)),
 });
 
 const byColumn = (subject: Subject, iso: GlobalIsoCoordinates) =>

@@ -1,0 +1,124 @@
+/**
+ * What a character's sprites look like, as data.
+ *
+ * Written by scripts/import-pokemon-sprites, one file per character under
+ * public/characters, and FETCHED like a map rather than imported: there are
+ * over a thousand of these to be had, each carrying an anchor for every frame
+ * of every direction, and a bundle holding all of them would be paid for by
+ * everyone to play one.
+ *
+ * Which is why loading is a step of its own — `loadCharacterSprites` before the
+ * map is built, `characterSprites` synchronously ever after. A Character is
+ * created deep inside a constructor and cannot wait for a round trip.
+ */
+
+export type CharacterAnimationName = "idle" | "walk" | "hop" | "attack";
+
+/**
+ * The eight directions, in the order the rows of a sheet are stacked: `se`
+ * points straight down the screen and each next one is 45° counter-clockwise.
+ *
+ * They name grid directions, not screen ones. Our axes lie between the sheet's
+ * rows: `e` alone is down and to the right on screen, `se` is straight down.
+ */
+export const DIRECTIONS = ["se", "e", "ne", "n", "nw", "w", "sw", "s"] as const;
+
+export type CharacterDirection = (typeof DIRECTIONS)[number];
+
+export type SpriteAnimation = {
+  /** what the frame names carry between the type and the direction */
+  key: string;
+  width: number;
+  height: number;
+  frames: number;
+  /** how long each frame is held, in ticks of a sixtieth of a second */
+  durations: number[];
+  /**
+   * The pixel of each frame that sits on the ground the character stands on,
+   * indexed `row * frames + frame`. Row is the index in `directions`.
+   */
+  anchors: [number, number][];
+  /**
+   * Hop only: the frames of leaving the ground, rising, falling and landing.
+   * The engine holds each for as long as its own physics is in that state,
+   * which is why a hop is four poses rather than a sequence.
+   */
+  phases?: [number, number, number, number];
+};
+
+export type CharacterSprites = {
+  /** what it occupies, in cells: s, e, u */
+  hitbox: [number, number, number];
+  /** rows of the sheets, in order */
+  directions: readonly CharacterDirection[];
+  animations: Partial<Record<CharacterAnimationName, SpriteAnimation>>;
+};
+
+const loaded = new globalThis.Map<string, CharacterSprites>();
+
+/** Where a description is served from, next to the maps */
+const urlOf = (type: string) =>
+  `${import.meta.env.BASE_URL}characters/${type}.json`;
+
+/**
+ * Make a description available without fetching it. What the headless tests
+ * use, reading the same files straight off disk.
+ */
+export const registerCharacterSprites = (
+  type: string,
+  sprites: CharacterSprites
+) => {
+  loaded.set(type, sprites);
+};
+
+/**
+ * Fetch the descriptions of everything a map is about to place.
+ *
+ * Await this before building the Map — see main.ts. Asking again for one
+ * already there costs nothing, so a caller need not work out what it has.
+ */
+export const loadCharacterSprites = async (types: Iterable<string>) => {
+  const wanted = [...new Set(types)].filter((type) => !loaded.has(type));
+  await Promise.all(
+    wanted.map(async (type) => {
+      const answer = await fetch(urlOf(type));
+      if (!answer.ok) {
+        throw new Error(
+          `No sprites for character ${type}: ${urlOf(type)} answered ${answer.status}`
+        );
+      }
+      registerCharacterSprites(type, (await answer.json()) as CharacterSprites);
+    })
+  );
+};
+
+export const characterSprites = (type: string): CharacterSprites => {
+  const sprites = loaded.get(type);
+  if (!sprites) {
+    throw new Error(
+      `Character ${type} was never loaded: loadCharacterSprites has to run first`
+    );
+  }
+  return sprites;
+};
+
+export const animationOf = (
+  sprites: CharacterSprites,
+  wanted: CharacterAnimationName
+): SpriteAnimation => {
+  const animation = sprites.animations[wanted];
+  if (!animation) throw new Error(`This character has no ${wanted} animation`);
+  return animation;
+};
+
+/** Which row of the sheets faces `direction` */
+export const directionRow = (
+  sprites: CharacterSprites,
+  direction: CharacterDirection
+): number => {
+  const row = sprites.directions.indexOf(direction);
+  if (row === -1) {
+    throw new Error(`This character is never drawn facing ${direction}`);
+  }
+  return row;
+};

@@ -1,6 +1,5 @@
 /**
- * The keyboard as a second left stick, so the character can be walked without a
- * gamepad.
+ * The keyboard as a second gamepad, so the character can be played without one.
  *
  * Held keys are remembered and read once a frame rather than acted on as they
  * arrive, which is what makes them a stick: the same `walkVelocity` turns them
@@ -24,6 +23,12 @@ const WALK_KEYS: Record<string, { x: number; y: number }> = {
 };
 
 const JUMP_KEY = "Space";
+
+/**
+ * Attack. The position just above D, so it falls under the same hand as the
+ * walk block whatever the layout — E on both QWERTY and AZERTY, as it happens.
+ */
+const ATTACK_KEY = "KeyE";
 
 /**
  * Where the held keys point, as a stick deflection in screen space.
@@ -63,7 +68,13 @@ export const listenForKeyboardInput = () => {
     // Ctrl+S is a save, Cmd+D a bookmark: a shortcut is not a walk, and
     // swallowing one would be both rude and hard to guess at.
     if (event.ctrlKey || event.metaKey || event.altKey) return;
-    if (!(event.code in WALK_KEYS) && event.code !== JUMP_KEY) return;
+    if (
+      !(event.code in WALK_KEYS) &&
+      event.code !== JUMP_KEY &&
+      event.code !== ATTACK_KEY
+    ) {
+      return;
+    }
     // only the jump: space scrolls the page. The letters are left alone so
     // that they still reach anything that ever wants to be typed into.
     if (event.code === JUMP_KEY) event.preventDefault();
@@ -79,4 +90,5 @@ export const listenForKeyboardInput = () => {
 export const keyboardInput = () => ({
   ...stickFromKeys(held),
   jumpHeld: held.has(JUMP_KEY),
+  attackHeld: held.has(ATTACK_KEY),
 });

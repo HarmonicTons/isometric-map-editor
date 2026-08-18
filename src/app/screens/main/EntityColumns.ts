@@ -34,32 +34,30 @@ export type EntityShape = {
   hitbox: IsoCoordinates;
   spriteWidth: number;
   spriteHeight: number;
+  /**
+   * The pixel of the sprite that stands on the ground under the entity, from
+   * its top left. Whatever the art is, this is the one thing it has to say.
+   */
+  anchorX: number;
+  anchorY: number;
 };
 
 /**
  * Where an entity's sprite is drawn, and the volume its depth order is decided
  * against.
  *
- * Centred on its footprint and standing on the front tip of it, at
- * 16 + 4 (footprint.s + footprint.e) below the cell's top left: 24 for one cell
- * but 32 for a two by two entity, a whole level lower.
- *
- * The footprint is in whole CELLS, not in hitbox — a sprite stands on the
- * diamond of the tiles under it, and a hitbox is deliberately narrower.
+ * The entity's box is centred in its cell, so the ground it stands on is the
+ * middle of that cell's top face — which projects to exactly 16 right and 16
+ * below the cell's top left, whatever the size of anything. Putting the
+ * sprite's own anchor there is the whole of the placement.
  *
  * Rounded to whole pixels, so "does that cell paint this pixel" stays exact.
  */
-const placeSprite = ({
-  iso,
-  hitbox,
-  spriteWidth,
-  spriteHeight,
-}: EntityShape) => {
+const placeSprite = ({ iso, hitbox, anchorX, anchorY }: EntityShape) => {
   const xy = iso.toXY();
-  const footprint = Math.ceil(hitbox.s) + Math.ceil(hitbox.e);
   return {
-    left: Math.round(xy.x + 16 - spriteWidth / 2),
-    top: Math.round(xy.y + 16 + 4 * footprint - spriteHeight),
+    left: Math.round(xy.x + 16 - anchorX),
+    top: Math.round(xy.y + 16 - anchorY),
     box: IsoBox.standingOn(iso, hitbox),
   };
 };

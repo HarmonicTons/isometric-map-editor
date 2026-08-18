@@ -94,7 +94,7 @@ describe("the chunk boundary overlay", () => {
     const whole = rects(alone);
     alone.destroy({ children: true });
 
-    const withCharacter = flat({ "5,5,4": "005-reptincel" });
+    const withCharacter = flat({ "5,5,4": "0004-charmander" });
     for (let frame = 0; frame < 120; frame++) withCharacter.update(tick);
     const cut = rects(withCharacter);
     expect(cut).toBeLessThan(whole);

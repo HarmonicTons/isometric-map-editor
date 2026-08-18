@@ -15,6 +15,8 @@ import {
 import { PNG } from "pngjs";
 import { Map as IsometricMap, MapData } from "../Map";
 import { TileFragmentsTextures } from "../TileFragmentsTextures";
+import type { CharacterSprites } from "../characterSprites";
+import { registerCharacterSprites } from "../characterSprites";
 
 /**
  * CPU compositor for snapshot tests: builds the map with the REAL Map class
@@ -24,10 +26,9 @@ import { TileFragmentsTextures } from "../TileFragmentsTextures";
  * turning a tree of sprites into pixels, is re-implemented here.
  */
 
-const rawAssetsDir = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../../../../raw-assets/game{m}"
-);
+const here = path.dirname(fileURLToPath(import.meta.url));
+const rawAssetsDir = path.resolve(here, "../../../../../raw-assets/game{m}");
+const charactersDir = path.resolve(here, "../../../../../public/characters");
 
 type AtlasJson = {
   frames: Record<
@@ -45,22 +46,30 @@ type LoadedAssets = {
 
 let loadedAssets: LoadedAssets | undefined;
 
+/** Every atlas under `dir`, however deep, as absolute paths */
+const atlasesUnder = (dir: string): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return atlasesUnder(full);
+    return entry.name.endsWith(".json") ? [full] : [];
+  });
+
 /**
- * Loads every atlas of raw-assets/game{m} and registers each frame in Pixi's
+ * Loads every atlas under raw-assets/game{m} and registers each frame in Pixi's
  * cache as a real Texture (correct dimensions, no pixel upload), mimicking
  * what Assets.load does at runtime. Runs once: the cache is global.
+ *
+ * Subfolders are walked because AssetPack walks them: characters live in one of
+ * their own, and a frame keeps the name its atlas gives it either way.
  */
 const loadAssets = (): LoadedAssets => {
   if (loadedAssets) return loadedAssets;
   const sheetBySource = new globalThis.Map<TextureSource, PNG>();
   const textureNames: string[] = [];
-  for (const file of readdirSync(rawAssetsDir)) {
-    if (!file.endsWith(".json")) continue;
-    const atlas = JSON.parse(
-      readFileSync(path.join(rawAssetsDir, file), "utf8")
-    ) as AtlasJson;
+  for (const file of atlasesUnder(rawAssetsDir)) {
+    const atlas = JSON.parse(readFileSync(file, "utf8")) as AtlasJson;
     const sheet = PNG.sync.read(
-      readFileSync(path.join(rawAssetsDir, atlas.meta.image))
+      readFileSync(path.join(path.dirname(file), atlas.meta.image))
     );
     const source = new TextureSource({
       width: sheet.width,
@@ -218,6 +227,23 @@ const collectBlits = (
 };
 
 /**
+ * Hands every character description on disk to the runtime, which in the game
+ * fetches them one at a time. Reading them all is what lets a test name a
+ * character and get on with it.
+ */
+const loadCharacters = () => {
+  for (const file of readdirSync(charactersDir)) {
+    if (!file.endsWith(".json")) continue;
+    registerCharacterSprites(
+      file.replace(/\.json$/, ""),
+      JSON.parse(
+        readFileSync(path.join(charactersDir, file), "utf8")
+      ) as CharacterSprites
+    );
+  }
+};
+
+/**
  * A real Map, built headless. Pixi runs fine in Node as long as nothing is
  * rendered, so tests can exercise the actual chunking, painter's order and
  * character slicing rather than a stand-in. The caller owns it and must
@@ -226,12 +252,15 @@ const collectBlits = (
 export const buildHeadlessMap = (
   mapData: MapData,
   chunksSize?: number
-): IsometricMap =>
-  new IsometricMap(
+): IsometricMap => {
+  const textures = loadAssets().textureNames;
+  loadCharacters();
+  return new IsometricMap(
     mapData,
-    new TileFragmentsTextures(loadAssets().textureNames),
+    new TileFragmentsTextures(textures),
     chunksSize
   );
+};
 
 export const composeMapImage = (
   mapData: MapData,

@@ -10,6 +10,18 @@ import {
 import { GlobalIsoCoordinates, IsoCoordinates } from "./IsometricCoordinate";
 import { NoTextureFoundError } from "./NoTextureFoundError";
 import type {
+  CharacterAnimationName,
+  CharacterDirection,
+  CharacterSprites,
+  SpriteAnimation,
+} from "./characterSprites";
+import {
+  DIRECTIONS,
+  animationOf,
+  characterSprites,
+  directionRow,
+} from "./characterSprites";
+import type {
   EntityColumnPiece,
   EntityColumnSlices,
   EntityShape,
@@ -21,53 +33,89 @@ import { debugViewEnabled } from "./DebugView";
  */
 export type CharacterType = string & { readonly __brand: "CharacterType" };
 
-export type CharacterState = "idle" | "walking";
-const stateKey: Record<CharacterState, string> = {
-  idle: "i",
-  walking: "m",
-};
-export type CharacterDirection = "north" | "east" | "south" | "west";
-const directionKey: Record<CharacterDirection, string> = {
-  north: "n",
-  east: "e",
-  south: "s",
-  west: "w",
-};
+export type { CharacterAnimationName, CharacterDirection };
 
 /**
- * What a character occupies, in cells. Deliberately narrower than it looks, so
- * it slips through a gap a little before its sprite stops touching the walls.
+ * The walking speed the sheets are drawn for, in cells per second.
  *
- * It also decides which cells hide it, and that is not a free choice: it has to
- * be the volume collision keeps clear, or a wall the character is pressed
- * against would interpenetrate it and have no depth order at all.
+ * A sheet says how long it holds each of its frames, and those durations are
+ * the rhythm the walk cycle was drawn at. Tying the two together here is what
+ * lets the cadence follow the ground covered — half speed, half cadence, feet
+ * that never slide — and still come out at the drawn rhythm at full stick.
+ * Map walks the character at exactly this.
  */
-const CHARACTER_HITBOX: Record<string, IsoCoordinates> = {
-  default: new IsoCoordinates(0.8, 0.8, 1.9),
-  "cube-medium": new IsoCoordinates(0.99, 0.99, 2),
-  "cube-large": new IsoCoordinates(1.99, 1.99, 4),
-  "template-1x1x2": new IsoCoordinates(0.99, 0.99, 2),
-  "template-2x2x4": new IsoCoordinates(1.99, 1.99, 4),
-  "005-reptincel": new IsoCoordinates(0.6, 0.6, 1.9),
-  "095-onix": new IsoCoordinates(1.9, 1.9, 3.9),
+export const NOMINAL_WALK_SPEED = 3;
+
+/** A tick of the durations in the sheets, in seconds */
+const TICK = 1 / 60;
+
+/**
+ * How long a character stands doing nothing before it plays its idle animation,
+ * in seconds.
+ *
+ * The idle sheet is a stretch and a yawn, not a way of standing: looped it
+ * would be a character fidgeting without pause. Played once now and then it is
+ * what it was drawn for, a break in the stillness. Between two of them the
+ * character holds the first frame of its walk cycle, which IS its way of
+ * standing.
+ */
+export const IDLE_EVERY = 5;
+
+/** The frame of the walk cycle a character rests on */
+const RESTING_FRAME = 0;
+
+/**
+ * The frame a run of durations is on after `ticks`, looping.
+ *
+ * Takes a fractional number of ticks, which is what lets one function serve
+ * both the animations played by the clock and the one played by the ground the
+ * character has covered.
+ */
+export const frameAtTicks = (durations: number[], ticks: number): number => {
+  const cycle = durations.reduce((total, held) => total + held, 0);
+  let left = ((ticks % cycle) + cycle) % cycle;
+  for (let frame = 0; frame < durations.length; frame++) {
+    left -= durations[frame];
+    if (left < 0) return frame;
+  }
+  return durations.length - 1;
 };
 
 /**
- * The frames of the walk cycle, in the order they are shown: a step, legs
- * together, the other step, legs together.
- */
-const WALK_CYCLE = [1, 2, 3, 2];
-
-/** Legs together — what it stands on when it is not going anywhere. */
-const NEUTRAL_FRAME = 2;
-
-/**
- * How far the character walks between two frames of the cycle, in cells.
+ * The eight-way heading a movement asks for, or undefined if it asks for none.
  *
- * Frames follow the distance covered rather than the clock, so half speed is
- * half cadence and the feet never slide over the ground.
+ * The sheet's rows are 45° apart on SCREEN, and our axes are not: `e` alone is
+ * down and to the right, `s` and `e` together are straight down. Projecting the
+ * movement and taking the angle there is what puts a heading in the row that
+ * actually faces that way — comparing s against e instead would hand the four
+ * diagonals of the screen to the four axes and turn the character 22.5° wrong.
  */
-const CELLS_PER_FRAME = 0.4;
+export const headingOf = (
+  deltaS: number,
+  deltaE: number
+): CharacterDirection | undefined => {
+  if (deltaS === 0 && deltaE === 0) return undefined;
+  const x = 16 * (deltaE - deltaS);
+  const y = 8 * (deltaE + deltaS);
+  // DIRECTIONS is in the order the rows are stacked: `se` is straight down the
+  // screen, and each next one is 45 degrees counter-clockwise from it
+  const turns = 2 - Math.atan2(y, x) / (Math.PI / 4);
+  return DIRECTIONS[
+    ((Math.round(turns) % DIRECTIONS.length) + DIRECTIONS.length) %
+      DIRECTIONS.length
+  ];
+};
+
+/** What the simulation tells a character every frame */
+export type CharacterStep = {
+  seconds: number;
+  /** whether something under its feet refused to let it down */
+  grounded: boolean;
+  /** the jump that just took off, not the button being held */
+  jumped: boolean;
+  /** the press that starts an attack */
+  attack: boolean;
+};
 
 /**
  * DEBUG — one colour per column while the depth order overlay is on (DebugView).
@@ -157,18 +205,29 @@ type CharacterPiece = {
 export class Character {
   public readonly type: CharacterType;
   /** What it occupies, for collision and for depth order alike */
-  public hitbox = CHARACTER_HITBOX.default;
+  public readonly hitbox: IsoCoordinates;
   public globalIsoCoordinates: GlobalIsoCoordinates;
   /** How fast it is rising, in cells per second. Negative while falling. */
   public verticalSpeed = 0;
-  public state: CharacterState;
   public direction: CharacterDirection;
 
+  /** How it is drawn, all of it: sheets, anchors, hitbox */
+  private readonly sprites: CharacterSprites;
+  /** What it is playing, and where in it */
+  private animation: CharacterAnimationName = "idle";
+  private frame = 0;
   /** Animation frame currently displayed, as found in the atlas */
   private animationTexture: Texture;
   /** Ground covered since it last stood still, in cells. See update. */
   private walked = 0;
   private walkedFrom?: { s: number; e: number };
+  /** What is left of the attack under way, in seconds */
+  private attacking = 0;
+  /** How long it has been standing there, in seconds. Reset by a break. */
+  private stillFor = 0;
+  /** How far into an idle break it is, in seconds, or none if it is not on one */
+  private breaking?: number;
+  private wasGrounded = true;
   private pieces: CharacterPiece[] = [];
   private slices?: EntityColumnSlices;
   private slicedAt?: {
@@ -177,42 +236,59 @@ export class Character {
     u: number;
     width: number;
     height: number;
+    anchorX: number;
+    anchorY: number;
   };
 
   constructor({
     type,
-    state = "walking",
-    direction = "south",
+    direction = "s",
     globalIsoCoordinates,
   }: {
     type: CharacterType;
-    state?: CharacterState;
     direction?: CharacterDirection;
     globalIsoCoordinates: GlobalIsoCoordinates;
   }) {
     this.type = type;
-    this.hitbox = CHARACTER_HITBOX[type] ?? CHARACTER_HITBOX.default;
-    this.state = state;
+    this.sprites = characterSprites(type);
+    const [s, e, u] = this.sprites.hitbox;
+    this.hitbox = new IsoCoordinates(s, e, u);
     this.direction = direction;
     this.globalIsoCoordinates = globalIsoCoordinates;
-    this.animationTexture = Character.getTexture(type, state, direction);
+    this.animationTexture = this.textureOf();
   }
 
-  public static getTexture(
-    type: CharacterType,
-    state: CharacterState,
-    direction: CharacterDirection = "south",
-    animationFrame: number = 1
-  ): Texture {
-    const texture = Texture.from(
-      `${type}_${stateKey[state]}-${directionKey[direction]}${animationFrame}.png`
-    );
+  /** The animation being played */
+  private get playing(): SpriteAnimation {
+    return animationOf(this.sprites, this.animation);
+  }
+
+  private textureOf(): Texture {
+    const animation = this.playing;
+    const key = `${this.type}_${animation.key}-${this.direction}${this.frame + 1}.png`;
+    const texture = Texture.from(key);
     if (!texture) {
       throw new NoTextureFoundError(
-        `No texture found for character ${type}_${stateKey[state]}-${directionKey[direction]}${animationFrame}.png`
+        `No texture found for character ${this.type} playing ${this.animation}: ${key}`
       );
     }
     return texture;
+  }
+
+  /**
+   * Where the sprite's ground point is, in pixels from its top left.
+   *
+   * A frame carries its own, which is what places art of any size or shape
+   * without a word of configuration — and what pins an animation that travels
+   * inside its own frame back onto the spot the engine puts the character on.
+   */
+  private get anchor(): [number, number] {
+    const animation = this.playing;
+    const row = directionRow(this.sprites, this.direction);
+    return (
+      animation.anchors[row * animation.frames + this.frame] ??
+      animation.anchors[0]
+    );
   }
 
   /** How many pieces it is currently cut into */
@@ -220,18 +296,26 @@ export class Character {
     return this.slices?.pieces.length ?? 0;
   }
 
+  /** What it is showing right now: which animation, and which of its frames */
+  public get showing(): { animation: CharacterAnimationName; frame: number } {
+    return { animation: this.animation, frame: this.frame };
+  }
+
   /** The cut as it currently stands. Read by the depth-key debug overlay. */
   public get slicing(): EntityColumnSlices | undefined {
     return this.slices;
   }
 
-  /** What the cut is decided from: where it stands and how big it is. */
+  /** What the cut is decided from: where it stands, how big, drawn where */
   public get shape(): EntityShape {
+    const [anchorX, anchorY] = this.anchor;
     return {
       iso: this.globalIsoCoordinates,
       hitbox: this.hitbox,
       spriteWidth: this.spriteWidth,
       spriteHeight: this.spriteHeight,
+      anchorX,
+      anchorY,
     };
   }
 
@@ -244,41 +328,125 @@ export class Character {
   }
 
   /**
-   * Pick the animation frame the character's ground travel has earned. Only s
-   * and e count, so falling is not walking and a character pressed into a wall
-   * stands still rather than walking on the spot.
+   * Pick what to show: which animation the character is in, and which of its
+   * frames.
+   *
+   * Three clocks, because the three animations are paced by different things.
+   * An attack and a stand run on the wall clock, at the rhythm their sheet was
+   * drawn at. A walk runs on the ground it covers, so that half speed is half
+   * cadence and the feet never slide — NOMINAL_WALK_SPEED is what turns the
+   * sheet's durations into a distance. A hop runs on the physics: the sheet
+   * draws its own rise and fall, and the engine's are the ones that count, so
+   * each of its four poses is held for as long as the engine is in it.
    */
-  public update() {
+  public update(step: CharacterStep) {
     const previous = this.walkedFrom;
     const { s, e } = this.globalIsoCoordinates;
     this.walkedFrom = { s, e };
-    const step = previous ? Math.hypot(s - previous.s, e - previous.e) : 0;
-    if (step === 0) {
+    const covered = previous ? Math.hypot(s - previous.s, e - previous.e) : 0;
+    if (covered === 0) {
       // start the next departure on a step rather than mid-stride
       this.walked = 0;
     }
-    this.walked += step;
+    this.walked += covered;
+    if (covered > 0) {
+      this.stillFor = 0;
+      this.breaking = undefined;
+    }
 
-    const animationFrame =
-      step === 0
-        ? NEUTRAL_FRAME
-        : WALK_CYCLE[
-            Math.floor(this.walked / CELLS_PER_FRAME) % WALK_CYCLE.length
-          ];
-    this.animationTexture = Character.getTexture(
-      this.type,
-      this.state,
-      this.direction,
-      animationFrame
-    );
+    this.attacking = step.attack
+      ? this.lengthOf("attack")
+      : Math.max(0, this.attacking - step.seconds);
+
+    const airborne = !step.grounded;
+    const landing = step.grounded && !this.wasGrounded;
+
+    if (this.attacking > 0) {
+      this.animation = "attack";
+      this.frame = frameAtTicks(
+        this.playing.durations,
+        (this.lengthOf("attack") - this.attacking) / TICK
+      );
+    } else if (step.jumped || airborne || landing) {
+      this.animation = "hop";
+      this.frame = this.hopFrame(step, airborne, landing);
+    } else if (covered > 0) {
+      this.animation = "walk";
+      this.frame = frameAtTicks(
+        this.playing.durations,
+        this.walked / (NOMINAL_WALK_SPEED * TICK)
+      );
+    } else {
+      this.standStill(step.seconds);
+    }
+
+    this.wasGrounded = step.grounded;
+    this.animationTexture = this.textureOf();
+  }
+
+  /** How long an animation lasts played once: exactly as long as its sheet says */
+  private lengthOf(name: CharacterAnimationName): number {
+    const { durations } = animationOf(this.sprites, name);
+    return durations.reduce((total, held) => total + held, 0) * TICK;
   }
 
   /**
-   * Whether the cut is out of date. It depends only on where the character
-   * stands and how big its sprite is, so it survives a change of frame.
+   * Doing nothing: the resting frame of the walk cycle, and every IDLE_EVERY
+   * seconds one run of the idle animation to break it.
+   *
+   * The counter only advances while the character is standing there, so walking
+   * off and coming back postpones the next break rather than banking it, and a
+   * character that never stops never plays one.
+   */
+  private standStill(seconds: number) {
+    const idle = this.sprites.animations.idle;
+    if (this.breaking !== undefined) {
+      this.breaking += seconds;
+      if (this.breaking >= this.lengthOf("idle")) this.breaking = undefined;
+    } else {
+      this.stillFor += seconds;
+      if (idle && this.stillFor >= IDLE_EVERY) {
+        this.breaking = 0;
+        this.stillFor = 0;
+      }
+    }
+
+    if (idle && this.breaking !== undefined) {
+      this.animation = "idle";
+      this.frame = frameAtTicks(idle.durations, this.breaking / TICK);
+    } else {
+      this.animation = "walk";
+      this.frame = RESTING_FRAME;
+    }
+  }
+
+  /**
+   * Leaving the ground, rising, falling, landing — whichever the engine is in.
+   *
+   * Takeoff and landing are one frame each, as they are the instants they
+   * describe. What is left of the sheet's ten frames is two poses, which is all
+   * it ever drew: the rest of the difference between them was height, and the
+   * engine owns that.
+   */
+  private hopFrame(step: CharacterStep, airborne: boolean, landing: boolean) {
+    const animation = this.playing;
+    const [takeoff, rising, falling, touchdown] = animation.phases ?? [
+      0, 0, 0, 0,
+    ];
+    if (step.jumped) return takeoff;
+    if (landing) return touchdown;
+    if (!airborne) return touchdown;
+    return this.verticalSpeed > 0 ? rising : falling;
+  }
+
+  /**
+   * Whether the cut is out of date. It depends on where the character stands
+   * and on where its sprite is put, which a change of frame can move on its
+   * own: an attack travels inside its frame, and the anchor travels with it.
    */
   public get needsSlicing(): boolean {
     const { s, e, u } = this.globalIsoCoordinates;
+    const [anchorX, anchorY] = this.anchor;
     const at = this.slicedAt;
     return (
       at === undefined ||
@@ -286,18 +454,23 @@ export class Character {
       at.e !== e ||
       at.u !== u ||
       at.width !== this.spriteWidth ||
-      at.height !== this.spriteHeight
+      at.height !== this.spriteHeight ||
+      at.anchorX !== anchorX ||
+      at.anchorY !== anchorY
     );
   }
 
   public setSlices(slices: EntityColumnSlices) {
     const { s, e, u } = this.globalIsoCoordinates;
+    const [anchorX, anchorY] = this.anchor;
     this.slicedAt = {
       s,
       e,
       u,
       width: this.spriteWidth,
       height: this.spriteHeight,
+      anchorX,
+      anchorY,
     };
     this.slices = slices;
   }

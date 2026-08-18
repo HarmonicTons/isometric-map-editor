@@ -165,7 +165,7 @@ const floor = (): MapData => {
   for (let s = 2; s <= 6; s++) {
     for (let e = 2; e <= 6; e++) tiles[`${s},${e},0`] = "dirt";
   }
-  return { tiles, objects: {}, characters: { "4,4,6": "005-reptincel" } };
+  return { tiles, objects: {}, characters: { "4,4,6": "0004-charmander" } };
 };
 
 describe("a character falling onto the ground", () => {
@@ -329,7 +329,7 @@ describe("a character walking into something solid", () => {
     return buildHeadlessMap({
       tiles,
       objects: {},
-      characters: { "4,4,6": "005-reptincel" },
+      characters: { "4,4,6": "0004-charmander" },
     } as MapData);
   };
 
@@ -370,7 +370,7 @@ describe("a character walking into something solid", () => {
     const map = buildHeadlessMap({
       tiles,
       objects: {},
-      characters: { "4,4,6": "005-reptincel" },
+      characters: { "4,4,6": "0004-charmander" },
     } as MapData);
     const tick = { deltaMS: 1000 / 60, lastTime: 0 } as Ticker;
     for (let frame = 0; frame < 60; frame++) map.update(tick);
@@ -500,7 +500,7 @@ describe("the character's shadow", () => {
           if (stepAt === undefined || s < stepAt) tiles[`${s},${e},1`] = "dirt";
         }
       }
-      return { tiles, objects: {}, characters: { "3,4,6": "005-reptincel" } };
+      return { tiles, objects: {}, characters: { "3,4,6": "0004-charmander" } };
     };
     /** How tall the shadow is with the character straddling s = 5 */
     const spread = (data: MapData) => {

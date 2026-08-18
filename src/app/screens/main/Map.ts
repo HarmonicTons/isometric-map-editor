@@ -19,7 +19,12 @@ import { CellContent, ChunkTileData, MapChunk } from "./MapChunk";
 import { MapObject, MapObjectType } from "./MapObject";
 import { Tile, TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
-import { Character, CharacterType } from "./Character";
+import {
+  Character,
+  CharacterType,
+  NOMINAL_WALK_SPEED,
+  headingOf,
+} from "./Character";
 import { sliceEntityByColumn } from "./EntityColumns";
 import { debugViewEnabled } from "./DebugView";
 import { keyboardInput } from "./Keyboard";
@@ -49,8 +54,14 @@ const shellTilesRelativeCoordinates = [
   new IsoCoordinates(1, 1, 1),
 ];
 
-/** Character walking speed, in cells per second */
-const CHARACTER_SPEED = 3;
+/**
+ * Character walking speed, in cells per second.
+ *
+ * Taken from Character rather than set here: the walk sheets are drawn at a
+ * rhythm, and the cadence only comes out right if the character walks at the
+ * speed those durations assume.
+ */
+const CHARACTER_SPEED = NOMINAL_WALK_SPEED;
 /** Fall acceleration, in cells per second squared */
 const GRAVITY = 40;
 /** Speed a jump leaves the ground at, in cells per second */
@@ -174,6 +185,8 @@ export class Map extends Container {
   private velocity = new IsoCoordinates(0, 0, 0);
   /** Whether A was already down last frame, so a hold is not a second jump */
   private jumpHeld = false;
+  /** Same, for the attack button: one attack per press */
+  private attackHeld = false;
 
   /**
    * How fast the character actually moved last frame — what it did, not what
@@ -769,7 +782,7 @@ export class Map extends Container {
     this.character = new Character({
       type,
       globalIsoCoordinates: globalIso,
-      direction: "south",
+      direction: "s",
     });
     this.syncView();
   }
@@ -789,7 +802,7 @@ export class Map extends Container {
     const gamepad = globalThis.navigator
       ?.getGamepads?.()
       .find((pad) => pad !== null);
-    if (!gamepad) return { x: 0, y: 0, jumpHeld: false };
+    if (!gamepad) return { x: 0, y: 0, jumpHeld: false, attackHeld: false };
     const [x, y] = gamepad.axes;
     const deadzone = 0.15;
     return {
@@ -797,6 +810,8 @@ export class Map extends Container {
       y: Math.abs(y) > deadzone ? y : 0,
       // 0 is A on an Xbox pad, Cross on a PlayStation one: the standard mapping
       jumpHeld: gamepad.buttons[0]?.pressed === true,
+      // 2 is X, or Square
+      attackHeld: gamepad.buttons[2]?.pressed === true,
     };
   }
 
@@ -810,17 +825,26 @@ export class Map extends Container {
     const held = pad.jumpHeld || keys.jumpHeld;
     const jump = held && !this.jumpHeld;
     this.jumpHeld = held;
+    const attackHeld = pad.attackHeld || keys.attackHeld;
+    const attack = attackHeld && !this.attackHeld;
+    this.attackHeld = attackHeld;
 
     return {
       leftStickX: pad.x + keys.x,
       leftStickY: pad.y + keys.y,
       jump,
+      attack,
     };
   }
 
   private simulate(
     time: Ticker,
-    input: { leftStickX: number; leftStickY: number; jump: boolean }
+    input: {
+      leftStickX: number;
+      leftStickY: number;
+      jump: boolean;
+      attack: boolean;
+    }
   ) {
     const character = this.character;
     if (!character) {
@@ -833,16 +857,7 @@ export class Map extends Container {
     const deltaS = velocity.s * seconds;
     const deltaE = velocity.e * seconds;
 
-    if (deltaS !== 0 || deltaE !== 0) {
-      character.direction =
-        Math.abs(deltaS) > Math.abs(deltaE)
-          ? deltaS > 0
-            ? "south"
-            : "north"
-          : deltaE > 0
-            ? "east"
-            : "west";
-    }
+    character.direction = headingOf(deltaS, deltaE) ?? character.direction;
 
     const walked = this.slideAlong(
       character.globalIsoCoordinates,
@@ -856,6 +871,7 @@ export class Map extends Container {
     // tells a jump it is allowed.
     const fallBox = IsoBox.standingOn(walked, character.hitbox);
     const grounded = this.freeDistance(fallBox, "u", -GROUND_PROBE) === 0;
+    const jumped = input.jump && grounded;
     character.verticalSpeed = fallVelocity(character.verticalSpeed, {
       grounded,
       jump: input.jump,
@@ -877,6 +893,21 @@ export class Map extends Container {
         (after.u - before.u) / seconds
       );
     }
+
+    // Last, so that the frame is picked from where the character ended up and
+    // from what the ground let it do — a jump refused by a ceiling is not a
+    // jump, and the animation has to agree.
+    character.update({
+      seconds,
+      grounded:
+        this.freeDistance(
+          IsoBox.standingOn(after, character.hitbox),
+          "u",
+          -GROUND_PROBE
+        ) === 0,
+      jumped,
+      attack: input.attack,
+    });
   }
 
   /** The chunks of the block at `origin` that exist, in no particular order. */
@@ -1093,10 +1124,6 @@ export class Map extends Container {
       const pulse = 0.5 + 0.5 * Math.sin((time.lastTime / 800) * Math.PI * 2);
       this.cursorSprites[this.hoveredEntity.side].alpha = 0.3 + 0.7 * pulse;
     }
-
-    if (this.character) {
-      this.character.update();
-    }
   }
 
   /**
@@ -1307,8 +1334,8 @@ export class Map extends Container {
 
   public update(time: Ticker) {
     const input = this.sampleInput();
+    // picks the animation frame too, which the view is then cut from
     this.simulate(time, input);
-    // cosmetics first: it picks the animation frame the view is cut from
     this.updateCosmetics(time);
     this.syncView();
     this.syncChunkBounds();

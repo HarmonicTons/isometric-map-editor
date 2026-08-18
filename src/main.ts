@@ -4,6 +4,7 @@ import { LoadScreen } from "./app/screens/LoadScreen";
 import { GameScreen } from "./app/screens/main/GameScreen";
 import { userSettings } from "./app/utils/userSettings";
 import { CreationEngine } from "./engine/engine";
+import { loadCharacterSprites } from "./app/screens/main/characterSprites";
 
 /**
  * Importing these modules will automatically register there plugins with the engine.
@@ -53,6 +54,10 @@ if ("serviceWorker" in navigator) {
       console.error(`Failed to load map data for ${mapName}`);
       return { tiles: { "0,0,0": "dirt" }, objects: {} };
     });
+  // The description of a character is served, not bundled — a thousand of them
+  // would be paid for by everyone. Fetched here so that Map can go on building
+  // its characters in a constructor.
+  await loadCharacterSprites(Object.values(mapData.characters ?? {}));
   // Show the main screen once the load screen is dismissed
   await engine.navigation.showScreen(GameScreen, mapData);
 })();

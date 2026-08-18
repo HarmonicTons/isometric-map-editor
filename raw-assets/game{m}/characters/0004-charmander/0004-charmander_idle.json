@@ -1,0 +1,269 @@
+{
+  "frames": {
+    "0004-charmander_idle-se1.png": {
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-se2.png": {
+      "frame": {
+        "x": 32,
+        "y": 0,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-se3.png": {
+      "frame": {
+        "x": 64,
+        "y": 0,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-se4.png": {
+      "frame": {
+        "x": 96,
+        "y": 0,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-e1.png": {
+      "frame": {
+        "x": 0,
+        "y": 40,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-e2.png": {
+      "frame": {
+        "x": 32,
+        "y": 40,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-e3.png": {
+      "frame": {
+        "x": 64,
+        "y": 40,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-e4.png": {
+      "frame": {
+        "x": 96,
+        "y": 40,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-ne1.png": {
+      "frame": {
+        "x": 0,
+        "y": 80,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-ne2.png": {
+      "frame": {
+        "x": 32,
+        "y": 80,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-ne3.png": {
+      "frame": {
+        "x": 64,
+        "y": 80,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-ne4.png": {
+      "frame": {
+        "x": 96,
+        "y": 80,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-n1.png": {
+      "frame": {
+        "x": 0,
+        "y": 120,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-n2.png": {
+      "frame": {
+        "x": 32,
+        "y": 120,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-n3.png": {
+      "frame": {
+        "x": 64,
+        "y": 120,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-n4.png": {
+      "frame": {
+        "x": 96,
+        "y": 120,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-nw1.png": {
+      "frame": {
+        "x": 0,
+        "y": 160,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-nw2.png": {
+      "frame": {
+        "x": 32,
+        "y": 160,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-nw3.png": {
+      "frame": {
+        "x": 64,
+        "y": 160,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-nw4.png": {
+      "frame": {
+        "x": 96,
+        "y": 160,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-w1.png": {
+      "frame": {
+        "x": 0,
+        "y": 200,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-w2.png": {
+      "frame": {
+        "x": 32,
+        "y": 200,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-w3.png": {
+      "frame": {
+        "x": 64,
+        "y": 200,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-w4.png": {
+      "frame": {
+        "x": 96,
+        "y": 200,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-sw1.png": {
+      "frame": {
+        "x": 0,
+        "y": 240,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-sw2.png": {
+      "frame": {
+        "x": 32,
+        "y": 240,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-sw3.png": {
+      "frame": {
+        "x": 64,
+        "y": 240,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-sw4.png": {
+      "frame": {
+        "x": 96,
+        "y": 240,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-s1.png": {
+      "frame": {
+        "x": 0,
+        "y": 280,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-s2.png": {
+      "frame": {
+        "x": 32,
+        "y": 280,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-s3.png": {
+      "frame": {
+        "x": 64,
+        "y": 280,
+        "w": 32,
+        "h": 40
+      }
+    },
+    "0004-charmander_idle-s4.png": {
+      "frame": {
+        "x": 96,
+        "y": 280,
+        "w": 32,
+        "h": 40
+      }
+    }
+  },
+  "meta": {
+    "image": "0004-charmander_idle.png",
+    "format": "RGBA8888",
+    "size": {
+      "w": 128,
+      "h": 320
+    },
+    "scale": "1"
+  }
+}
