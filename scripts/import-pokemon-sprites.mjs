@@ -299,42 +299,38 @@ const anchorsOf = (dump, anim, rows, placeBy) => {
 /**
  * The four moments of a hop: leaving the ground, going up, coming down, landing.
  *
- * A hop sheet spends ten frames on what is really four poses — the frames of a
- * rise differ only in how high off the ground they are drawn, and that height is
- * exactly what `body` placement takes back out. Once each frame is placed, whole
- * runs of them are the SAME IMAGE, so grouping them by their pixels finds the
- * poses without anyone having to count.
+ * Read off the height of the body, which the anchors already carry: `body`
+ * placement follows the black marker, so a smaller y is a character further off
+ * the ground. The apex is where that is lowest; a frame from the middle of the
+ * climb and one from the middle of the drop are the two poses, and the sheet's
+ * first and last frames are the other two.
+ *
+ * Deliberately no cleverer than that. A hop sheet spends ten frames on what is
+ * really two or three poses — the frames of a climb differ only in how high
+ * they are drawn, which `body` placement takes straight back out — but WHICH
+ * frames those are is not agreed on: Charmander crouches, rises over four,
+ * drops over four and lands; Onix never lands; Metagross neither crouches nor
+ * lands and climbs over six. Grouping frames by their pixels and expecting the
+ * groups to line up with the moments worked for the first and threw on the
+ * third. Taking the middle of each half cannot: whatever pose is being held
+ * there is the pose of that half, and a sheet with no crouch simply hands its
+ * climbing pose to the takeoff as well.
  *
  * Which matters because the engine, not the sheet, decides how long a jump
- * lasts: it holds the rising pose while the character rises, however long that
- * is, and no sequence of ten frames can be stretched to fit.
+ * lasts: it holds the climbing pose while the character climbs, however long
+ * that is, and no sequence of ten frames can be stretched to fit.
  */
-const hopPhases = (sheet, anim, anchors) => {
+const hopPhases = (anim, anchors) => {
   const frames = anim.durations.length;
-  const pixel = (column, x, y) => {
-    if (y < 0 || y >= anim.height) return -1;
-    const at = (y * sheet.width + column * anim.width + x) * 4;
-    return sheet.data[at + 3] === 0 ? -1 : sheet.data[at];
-  };
-  // row 0, each frame shifted by its own anchor so only the pose is compared
-  const same = (a, b) => {
-    const shift = anchors[b][1] - anchors[a][1];
-    for (let y = 0; y < anim.height; y++) {
-      for (let x = 0; x < anim.width; x++) {
-        if (pixel(a, x, y) !== pixel(b, x, y + shift)) return false;
-      }
-    }
-    return true;
-  };
-  const takeoff = 0;
-  let rising = 1;
-  while (rising < frames && same(takeoff, rising)) rising++;
-  let falling = rising + 1;
-  while (falling < frames && same(rising, falling)) falling++;
-  if (rising >= frames || falling >= frames) {
-    throw new Error(`hop has no distinct rise and fall among ${frames} frames`);
-  }
-  return [takeoff, rising, falling, frames - 1];
+  const height = anchors.slice(0, frames).map(([, y]) => y);
+  const apex = Math.min(...height);
+  const middle = (from, to) => Math.round((from + to) / 2);
+  return [
+    0,
+    middle(0, height.indexOf(apex)),
+    middle(height.lastIndexOf(apex), frames - 1),
+    frames - 1,
+  ];
 };
 
 /** The atlas AssetPack and Pixi read, one per animation */
@@ -444,7 +440,7 @@ const describe = (type, dump) => {
       frames: anim.durations.length,
       durations: anim.durations,
       anchors,
-      ...(phases ? { phases: hopPhases(sheet, anim, anchors) } : {}),
+      ...(phases ? { phases: hopPhases(anim, anchors) } : {}),
     };
     if (name === MEASURED_ON) {
       hitbox = hitboxFrom(
