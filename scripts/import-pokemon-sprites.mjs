@@ -102,6 +102,23 @@ const MEASURED_FRAME = 0;
 const CELL_WIDTH = 32;
 const LEVEL_HEIGHT = 8;
 
+/**
+ * How much of its own silhouette a character's footprint keeps.
+ *
+ * A body exactly as wide as a gap fits it only when it is aligned to the
+ * flottant: the tolerance for threading a gap is the difference between the
+ * two, and at equal size that difference is zero. Sliding along the wall never
+ * finds the opening either, since it is a single point.
+ *
+ * A hair narrower than it looks is the old hand-written table's rule, and it is
+ * what makes "hard to get through" out of "impossible": the passable window
+ * becomes (gap - footprint) wide instead of nothing at all.
+ *
+ * Only the footprint. Shrinking the height would let characters under ceilings
+ * they should not fit beneath.
+ */
+const FOOTPRINT_MARGIN = 0.99;
+
 // ---------------------------------------------------------------- downloading
 
 /**
@@ -376,9 +393,12 @@ const hitboxFrom = (sheet, anim, rows, anchor, column) => {
     }
   }
   const footprint = (maxX - minX + 1) / CELL_WIDTH;
+  // the height inverts the projection of the silhouette, so it reads the
+  // footprint the art really has, before the margin narrows what collides
   const levels = (anchor[1] - minY - LEVEL_HEIGHT * footprint) / LEVEL_HEIGHT;
   const round = (value) => Math.round(value * 1e4) / 1e4;
-  return [round(footprint), round(footprint), round(Math.max(levels, 0.125))];
+  const across = round(footprint * FOOTPRINT_MARGIN);
+  return [across, across, round(Math.max(levels, 0.125))];
 };
 
 /**

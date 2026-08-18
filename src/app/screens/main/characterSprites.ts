@@ -92,6 +92,10 @@ export const loadCharacterSprites = async (types: Iterable<string>) => {
   );
 };
 
+/** Whether a description is already in hand */
+export const characterSpritesLoaded = (type: string): boolean =>
+  loaded.has(type);
+
 export const characterSprites = (type: string): CharacterSprites => {
   const sprites = loaded.get(type);
   if (!sprites) {

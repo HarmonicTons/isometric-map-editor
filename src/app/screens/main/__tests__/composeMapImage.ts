@@ -16,7 +16,10 @@ import { PNG } from "pngjs";
 import { Map as IsometricMap, MapData } from "../Map";
 import { TileFragmentsTextures } from "../TileFragmentsTextures";
 import type { CharacterSprites } from "../characterSprites";
-import { registerCharacterSprites } from "../characterSprites";
+import {
+  characterSpritesLoaded,
+  registerCharacterSprites,
+} from "../characterSprites";
 
 /**
  * CPU compositor for snapshot tests: builds the map with the REAL Map class
@@ -234,8 +237,12 @@ const collectBlits = (
 const loadCharacters = () => {
   for (const file of readdirSync(charactersDir)) {
     if (!file.endsWith(".json")) continue;
+    const type = file.replace(/\.json$/, "");
+    // never clobbers: a test that registered a subject of its own keeps it,
+    // and the runtime loader skips what it already has for the same reason
+    if (characterSpritesLoaded(type)) continue;
     registerCharacterSprites(
-      file.replace(/\.json$/, ""),
+      type,
       JSON.parse(
         readFileSync(path.join(charactersDir, file), "utf8")
       ) as CharacterSprites

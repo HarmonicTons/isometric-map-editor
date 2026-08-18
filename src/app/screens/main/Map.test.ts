@@ -384,6 +384,41 @@ describe("a character walking into something solid", () => {
     expect(after.e - before.e).toBeGreaterThan(1);
     map.destroy({ children: true });
   });
+
+  it("gets a two-cell body through a two-cell doorway", () => {
+    // What the footprint margin in the importer is for. Onix is drawn 64 px
+    // across, exactly two cells, and a body exactly as wide as the gap fits it
+    // only when aligned to the last decimal: sliding along the wall then goes
+    // straight past the doorway, for ever, at every speed. The margin makes the
+    // window (gap - footprint) wide instead of nothing.
+    //
+    // It is a NARROW window even so — measured at 15 tries out of 24 starting
+    // offsets with the margin at 0.99. This is the property holding, not a
+    // promise that it always feels good.
+    const tiles: Record<string, string> = {};
+    for (let s = 0; s <= 20; s++) {
+      for (let e = 0; e <= 30; e++) tiles[`${s},${e},0`] = "dirt";
+    }
+    for (let e = 0; e <= 30; e++) {
+      if (e === 4 || e === 5) continue;
+      for (let u = 1; u <= 6; u++) tiles[`8,${e},${u}`] = "rock";
+    }
+    const map = buildHeadlessMap({
+      tiles,
+      objects: {},
+      characters: { "6,1,1": "0095-onix" },
+    } as MapData);
+    const tick = { deltaMS: 1000 / 60, lastTime: 0 } as Ticker;
+    for (let frame = 0; frame < 60; frame++) map.update(tick);
+
+    // straight down the screen: into the wall, then along it to the doorway
+    let through = false;
+    walkWith(map, 0, 1, 900, () => {
+      if (map.character!.globalIsoCoordinates.s > 9) through = true;
+    });
+    expect(through).toBe(true);
+    map.destroy({ children: true });
+  });
 });
 
 /** The pieces of shadow that currently paint something */
