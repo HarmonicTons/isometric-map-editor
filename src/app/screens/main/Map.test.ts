@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { Container, Graphics, Ticker } from "pixi.js";
 import {
   fallVelocity,
+  jumpSpeedFor,
   Map as IsometricMap,
   MapData,
   walkVelocity,
@@ -86,9 +87,15 @@ describe("walkVelocity", () => {
 const FRAME = 1 / 60;
 
 /** Where a jump takes the character, integrated frame by frame */
-const jumpArc = () => {
+const jumpArc = (bodyHeight: number) => {
+  const jumpSpeed = jumpSpeedFor(bodyHeight);
   const heights: number[] = [];
-  let speed = fallVelocity(0, { grounded: true, jump: true, seconds: FRAME });
+  let speed = fallVelocity(0, {
+    grounded: true,
+    jump: true,
+    jumpSpeed,
+    seconds: FRAME,
+  });
   let height = 0;
   // until it is back where it started
   for (let frame = 0; frame < 600 && (height > 0 || speed > 0); frame++) {
@@ -97,32 +104,53 @@ const jumpArc = () => {
     speed = fallVelocity(speed, {
       grounded: false,
       jump: false,
+      jumpSpeed,
       seconds: FRAME,
     });
   }
   return heights;
 };
 
+/** The shortest thing imported so far, and so the smallest jump in the game */
+const BULBASAUR = 1.5313;
+const JUMP = jumpSpeedFor(BULBASAUR);
+
 describe("fallVelocity", () => {
   it("stays put on the ground with nothing pressed", () => {
     // it keeps asking to go down; the floor is what refuses
     expect(
-      fallVelocity(0, { grounded: true, jump: false, seconds: FRAME })
+      fallVelocity(0, {
+        grounded: true,
+        jump: false,
+        jumpSpeed: JUMP,
+        seconds: FRAME,
+      })
     ).toBeLessThan(0);
     // and the speed it landed with is not carried into the next frame
     const landed = fallVelocity(-12, {
       grounded: true,
       jump: false,
+      jumpSpeed: JUMP,
       seconds: FRAME,
     });
     expect(landed).toBe(
-      fallVelocity(0, { grounded: true, jump: false, seconds: FRAME })
+      fallVelocity(0, {
+        grounded: true,
+        jump: false,
+        jumpSpeed: JUMP,
+        seconds: FRAME,
+      })
     );
   });
 
   it("leaves the ground when A is pressed", () => {
     expect(
-      fallVelocity(0, { grounded: true, jump: true, seconds: FRAME })
+      fallVelocity(0, {
+        grounded: true,
+        jump: true,
+        jumpSpeed: JUMP,
+        seconds: FRAME,
+      })
     ).toBeGreaterThan(0);
   });
 
@@ -130,20 +158,42 @@ describe("fallVelocity", () => {
     const falling = fallVelocity(-3, {
       grounded: false,
       jump: true,
+      jumpSpeed: JUMP,
       seconds: FRAME,
     });
     expect(falling).toBe(
-      fallVelocity(-3, { grounded: false, jump: false, seconds: FRAME })
+      fallVelocity(-3, {
+        grounded: false,
+        jump: false,
+        jumpSpeed: JUMP,
+        seconds: FRAME,
+      })
     );
   });
 
   it("clears a cell and comes back down", () => {
-    const arc = jumpArc();
+    const arc = jumpArc(BULBASAUR);
     // high enough to climb onto anything one cell tall, not so high it flies
     expect(Math.max(...arc)).toBeGreaterThan(1.1);
-    expect(Math.max(...arc)).toBeLessThan(1.5);
+    expect(Math.max(...arc)).toBeLessThan(2);
     // and it is over quickly: a jump is not a float
-    expect(arc.length * FRAME).toBeLessThan(0.7);
+    expect(arc.length * FRAME).toBeLessThan(0.8);
+  });
+
+  it("takes a character as high as it is tall", () => {
+    // Bulbasaur clears a cell and a half, Rayquaza five: measured off the arc
+    // the game actually walks, which overshoots the true apex by half a frame
+    // of speed — a fifth of a cell at the tallest, hence the loose bound.
+    for (const height of [BULBASAUR, 2.375, 4.875, 5.3125]) {
+      expect(Math.max(...jumpArc(height))).toBeCloseTo(height, 0);
+    }
+  });
+
+  it("never lets anything be too short to climb a step", () => {
+    // Nothing imported is anywhere near this — it is what keeps a future
+    // character from being unable to get onto the scenery at all.
+    expect(jumpSpeedFor(0.4)).toBe(jumpSpeedFor(1));
+    expect(Math.max(...jumpArc(0.4))).toBeGreaterThan(1);
   });
 
   it("never falls fast enough to cross a cell in one frame", () => {
@@ -152,6 +202,7 @@ describe("fallVelocity", () => {
       speed = fallVelocity(speed, {
         grounded: false,
         jump: false,
+        jumpSpeed: JUMP,
         seconds: FRAME,
       });
     }

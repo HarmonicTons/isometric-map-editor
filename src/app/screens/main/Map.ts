@@ -64,8 +64,6 @@ const shellTilesRelativeCoordinates = [
 const CHARACTER_SPEED = NOMINAL_WALK_SPEED;
 /** Fall acceleration, in cells per second squared */
 const GRAVITY = 40;
-/** Speed a jump leaves the ground at, in cells per second */
-const JUMP_SPEED = 10;
 /**
  * Fastest it can fall, in cells per second. A feel knob, not a safety net: Pixi
  * clamps a hitching frame to 100 ms, so a long drop still crosses two cells
@@ -78,20 +76,40 @@ const TERMINAL_SPEED = 20;
 const GROUND_PROBE = 1e-6;
 
 /**
- * The character's vertical speed after one frame, in cells per second.
+ * How fast a body `height` cells tall leaves the ground, in cells per second.
  *
- * With these numbers the apex is JUMP_SPEED² / 2·GRAVITY = 1.25 cells — enough
- * to climb onto anything one cell high — reached in a quarter of a second.
+ * A character jumps its own height: Bulbasaur clears a cell and a half,
+ * Rayquaza five. Which is the same jump seen from inside — the world a
+ * character steps over is measured in its own size — and it is the one number
+ * that needs no tuning, since a body already has a height.
+ *
+ * A jump reaches v² / 2g, so the speed is the square root of the height rather
+ * than a multiple of it. The floor is there so that whatever gets imported can
+ * always climb the one-cell steps the scenery is built out of; nothing
+ * imported so far comes close to it, the shortest being Bulbasaur at 1.53.
+ */
+export const jumpSpeedFor = (height: number): number =>
+  Math.sqrt(2 * GRAVITY * Math.max(1, height));
+
+/**
+ * The character's vertical speed after one frame, in cells per second.
  */
 export const fallVelocity = (
   verticalSpeed: number,
   {
     grounded,
     jump,
+    jumpSpeed,
     seconds,
-  }: { grounded: boolean; jump: boolean; seconds: number }
+  }: {
+    grounded: boolean;
+    jump: boolean;
+    /** what this body leaves the ground at: see jumpSpeedFor */
+    jumpSpeed: number;
+    seconds: number;
+  }
 ): number => {
-  if (jump && grounded) return JUMP_SPEED;
+  if (jump && grounded) return jumpSpeed;
   // standing on the floor: whatever speed it fell in with is spent
   const carried = grounded && verticalSpeed <= 0 ? 0 : verticalSpeed;
   return Math.max(-TERMINAL_SPEED, carried - GRAVITY * seconds);
@@ -875,6 +893,7 @@ export class Map extends Container {
     character.verticalSpeed = fallVelocity(character.verticalSpeed, {
       grounded,
       jump: input.jump,
+      jumpSpeed: jumpSpeedFor(character.hitbox.u),
       seconds,
     });
     const wanted = character.verticalSpeed * seconds;
