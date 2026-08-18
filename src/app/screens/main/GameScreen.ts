@@ -9,6 +9,7 @@ import type { MapObjectType } from "./MapObject";
 import type { TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 import { debugViewEnabled, listenForDebugViewToggle } from "./DebugView";
+import { listenForKeyboardInput } from "./Keyboard";
 
 /** How long the frame rate is averaged over before it is shown, in ms */
 const FPS_WINDOW = 500;
@@ -98,6 +99,7 @@ export class GameScreen extends Container {
       });
 
     listenForDebugViewToggle();
+    listenForKeyboardInput();
 
     // TODO: use another system to register the textures instead of using Pixi's cache
     // @ts-expect-error hack to access private property

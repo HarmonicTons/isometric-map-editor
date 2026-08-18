@@ -22,6 +22,7 @@ import { TileFragmentsTextures } from "./TileFragmentsTextures";
 import { Character, CharacterType } from "./Character";
 import { sliceEntityByColumn } from "./EntityColumns";
 import { debugViewEnabled } from "./DebugView";
+import { keyboardInput } from "./Keyboard";
 import {
   NORTH_EDGE_RUNS,
   paintRuns,
@@ -782,25 +783,37 @@ export class Map extends Container {
    * event, so a remembered index crashes on every frame of the ticker.
    * `jump` is the press, not the hold.
    */
-  private sampleInput() {
+  /** The left stick and the jump button of the first gamepad that is there */
+  private sampleGamepad() {
     // node has a navigator, but no gamepads on it
     const gamepad = globalThis.navigator
       ?.getGamepads?.()
       .find((pad) => pad !== null);
-    if (!gamepad) {
-      this.jumpHeld = false;
-      return { leftStickX: 0, leftStickY: 0, jump: false };
-    }
-    const [leftStickX, leftStickY] = gamepad.axes;
+    if (!gamepad) return { x: 0, y: 0, jumpHeld: false };
+    const [x, y] = gamepad.axes;
     const deadzone = 0.15;
-    // 0 is A on an Xbox pad, Cross on a PlayStation one: the standard mapping
-    const held = gamepad.buttons[0]?.pressed === true;
+    return {
+      x: Math.abs(x) > deadzone ? x : 0,
+      y: Math.abs(y) > deadzone ? y : 0,
+      // 0 is A on an Xbox pad, Cross on a PlayStation one: the standard mapping
+      jumpHeld: gamepad.buttons[0]?.pressed === true,
+    };
+  }
+
+  private sampleInput() {
+    const pad = this.sampleGamepad();
+    const keys = keyboardInput();
+    // Added rather than chosen between, so that neither device has to be
+    // declared the active one: whichever is at rest contributes nothing, and
+    // holding both only ever asks for a longer deflection, which walkVelocity
+    // clamps the same way it clamps a stick pushed into a corner.
+    const held = pad.jumpHeld || keys.jumpHeld;
     const jump = held && !this.jumpHeld;
     this.jumpHeld = held;
 
     return {
-      leftStickX: Math.abs(leftStickX) > deadzone ? leftStickX : 0,
-      leftStickY: Math.abs(leftStickY) > deadzone ? leftStickY : 0,
+      leftStickX: pad.x + keys.x,
+      leftStickY: pad.y + keys.y,
       jump,
     };
   }

@@ -13,6 +13,14 @@ import {
   MAP_MAX_HEIGHT,
 } from "./IsometricCoordinate";
 
+// nothing can press a key in node, so the keyboard is driven straight through
+// the shape Map reads it in. Neutral unless a test says otherwise.
+let keyboard = { x: 0, y: 0, jumpHeld: false };
+vi.mock("./Keyboard", () => ({
+  keyboardInput: () => keyboard,
+  listenForKeyboardInput: () => {},
+}));
+
 /** Where a walk of one second lands on screen, in pixels */
 const onScreen = (leftStickX: number, leftStickY: number) => {
   const { s, e } = walkVelocity(leftStickX, leftStickY);
@@ -190,6 +198,74 @@ describe("a character falling onto the ground", () => {
     expect(map.character!.globalIsoCoordinates).toEqual(
       new GlobalIsoCoordinates(4, 4, 1)
     );
+    map.destroy({ children: true });
+  });
+});
+
+describe("a character driven from the keyboard", () => {
+  beforeAll(() => {
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+  });
+
+  const tick = { deltaMS: 1000 / 60, lastTime: 0 } as Ticker;
+
+  /** Run `frames` frames with the keyboard held as given, then let go */
+  const holding = (
+    map: IsometricMap,
+    state: { x: number; y: number; jumpHeld: boolean },
+    frames: number
+  ) => {
+    keyboard = state;
+    try {
+      let highest = -Infinity;
+      for (let frame = 0; frame < frames; frame++) {
+        map.update(tick);
+        highest = Math.max(highest, map.character!.globalIsoCoordinates.u);
+      }
+      return highest;
+    } finally {
+      keyboard = { x: 0, y: 0, jumpHeld: false };
+    }
+  };
+
+  const landed = (): IsometricMap => {
+    const map = buildHeadlessMap(floor());
+    for (let frame = 0; frame < 120; frame++) map.update(tick);
+    return map;
+  };
+
+  it("walks where the keys point, at the pace the stick would ask for", () => {
+    const map = landed();
+    const before = map.character!.globalIsoCoordinates;
+    // the same deflection the D key produces: fully right on the screen
+    holding(map, { x: 1, y: 0, jumpHeld: false }, 30);
+    const after = map.character!.globalIsoCoordinates;
+    // north-east: away along s, towards along e
+    expect(after.s).toBeLessThan(before.s);
+    expect(after.e).toBeGreaterThan(before.e);
+    map.destroy({ children: true });
+  });
+
+  it("jumps once on space, and holding it does not bounce", () => {
+    const map = landed();
+    const feet = map.character!.globalIsoCoordinates.u;
+    // Space is a press and not a hold, exactly like the pad's A button — the
+    // edge is what Map keeps, so both devices go through the same rule.
+    expect(holding(map, { x: 0, y: 0, jumpHeld: true }, 120)).toBeGreaterThan(
+      feet + 1
+    );
+    // still held, and back on the ground: it stays there
+    keyboard = { x: 0, y: 0, jumpHeld: true };
+    try {
+      let highest = -Infinity;
+      for (let frame = 0; frame < 120; frame++) {
+        map.update(tick);
+        highest = Math.max(highest, map.character!.globalIsoCoordinates.u);
+      }
+      expect(highest).toBe(feet);
+    } finally {
+      keyboard = { x: 0, y: 0, jumpHeld: false };
+    }
     map.destroy({ children: true });
   });
 });
