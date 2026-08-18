@@ -7,6 +7,20 @@ import {
   paintersOrderKey,
 } from "./IsometricCoordinate";
 
+/**
+ * Print numbers the tests below deliberately do NOT assert on, with MEASURE=1.
+ *
+ * They are descriptive rather than contractual — how many pairs the geometry
+ * had no opinion about, how many pieces and runs a cut comes out at, what it
+ * costs per call — and pinning any of them in an `expect` would fail on a
+ * faster machine or on a redrawn sprite. They are what one implementation is
+ * compared against another with, so they live beside the oracle that judges
+ * both rather than in a script of their own.
+ */
+const report = (data: unknown) => {
+  if (process.env.MEASURE) console.log(JSON.stringify(data, null, 2));
+};
+
 const CELL_WIDTH = 32;
 const CELL_HEIGHT = 24;
 
@@ -552,7 +566,7 @@ describe("sliceEntityByColumn", () => {
 
 /**
  * The cut over a sweep of positions, against the oracle. Run it with
- * `npx vitest run --disableConsoleIntercept EntityColumns` to read the numbers.
+ * `MEASURE=1 npx vitest run EntityColumns` to read the numbers out.
  */
 const measure = (
   subject: Subject,
@@ -716,7 +730,7 @@ describe("two entities sharing a column", () => {
   it("orders them the way the geometry does", () => {
     const withSubCell = sweepPairs(columnKeys);
     const flat = sweepPairs(flatKeys);
-    console.log(JSON.stringify({ withSubCell, flat }, null, 2));
+    report({ withSubCell, flat });
 
     // what the flat half could not do, and the whole reason for the fraction
     expect(flat.tied).toBeGreaterThan(0);
@@ -728,18 +742,18 @@ describe("two entities sharing a column", () => {
 
 describe("the cut, measured", () => {
   it("holds over a sweep of a character's positions", () => {
-    const report = measure(CHARACTER, sweep(0.1, [4, 4.5]), 6);
-    console.log(JSON.stringify(report, null, 2));
-    expect(report.mistakes).toBe(0);
+    const measured = measure(CHARACTER, sweep(0.1, [4, 4.5]), 6);
+    report(measured);
+    expect(measured.mistakes).toBe(0);
   });
 
   it("holds on something several cells wide", () => {
     // A giant is four cells across the diagonal and four levels tall, so a
     // whole column of cell keys fits inside its sprite. Nothing about the cut
     // notices: it never cuts in u, and the key of a piece is its column's.
-    const report = measure(GIANT, sweep(0.25), 8);
-    console.log(JSON.stringify(report, null, 2));
-    expect(report.mistakes).toBe(0);
+    const measured = measure(GIANT, sweep(0.25), 8);
+    report(measured);
+    expect(measured.mistakes).toBe(0);
   });
 
   /** How far a cell that must be drawn alongside `subject` can be, in cells */
