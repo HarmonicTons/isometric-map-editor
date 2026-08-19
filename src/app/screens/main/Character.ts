@@ -199,8 +199,8 @@ type CharacterPiece = {
  *
  * It stands at fractional coordinates and straddles cells, so no single depth
  * key is right for its whole sprite: it is not a display object itself but owns
- * one mesh per column it stands over, drawn in the live block. See
- * EntityColumns.
+ * one mesh per column it stands over, each drawn by the chunk that owns that
+ * column. See EntityColumns.
  */
 export class Character {
   public readonly type: CharacterType;
@@ -479,11 +479,15 @@ export class Character {
   }
 
   /**
-   * Draw the character as its current pieces, all in `host`, reusing the pooled
-   * meshes. Pieces beyond what is needed are detached rather than hidden, so
-   * that nothing is kept alive by an invisible mesh.
+   * Draw the character as its current pieces, reusing the pooled meshes.
+   *
+   * Each piece asks `hostOf` where its own column is drawn rather than being
+   * given one container for the lot: a character straddling a chunk boundary
+   * has pieces on both sides of it, and each belongs with the cells it has to
+   * sort against. Pieces beyond what is needed are detached rather than
+   * hidden, so that nothing is kept alive by an invisible mesh.
    */
-  public render(host: Container) {
+  public render(hostOf: (s: number, e: number) => Container) {
     const slices = this.slices;
     if (!slices) return;
     while (this.pieces.length < slices.pieces.length) {
@@ -492,7 +496,7 @@ export class Character {
     this.pieces.forEach((mesh, index) => {
       const piece = slices.pieces[index];
       if (piece) {
-        this.showPiece(mesh, slices, piece, host);
+        this.showPiece(mesh, slices, piece, hostOf(piece.s, piece.e));
       } else {
         this.detach(mesh);
       }
@@ -516,7 +520,7 @@ export class Character {
     const geometry = new MeshGeometry({ shrinkBuffersToFit: false });
     // Left to itself Pixi batches a mesh of at most 100 vertices, and a piece is
     // one quad per row: 128 for a 32 pixel character. Unbatched, each piece
-    // takes a draw call and splits the live block's tile batch on its way past.
+    // takes a draw call and splits its chunk's tile batch on its way past.
     // Asking also puts MeshPipe.validateRenderable back on the branch that
     // compares buffer sizes, which is what makes fillGeometry's fixed sizing
     // worth anything.

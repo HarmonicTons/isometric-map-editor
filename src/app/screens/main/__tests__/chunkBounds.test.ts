@@ -85,10 +85,11 @@ describe("the chunk boundary overlay", () => {
     map.destroy({ children: true });
   });
 
-  it("leaves out the boundaries the live block has dissolved", () => {
-    // While four chunks lend their cells to one container they are one for the
-    // draw order, so the two seams inside the block are not boundaries any
-    // more. What has to survive is the block's own outline.
+  it("draws every boundary, whatever the character is standing on", () => {
+    // Chunks are never merged any more, so a boundary is a boundary wherever
+    // the character happens to be: what the overlay shows is what the draw
+    // order really does. It used to hide the seams the live block had
+    // swallowed, which meant the picture changed as the character walked.
     const alone = flat();
     alone.update(tick);
     const whole = rects(alone);
@@ -96,20 +97,16 @@ describe("the chunk boundary overlay", () => {
 
     const withCharacter = flat({ "5,5,4": "0004-charmander" });
     for (let frame = 0; frame < 120; frame++) withCharacter.update(tick);
-    const cut = rects(withCharacter);
-    expect(cut).toBeLessThan(whole);
+    expect(rects(withCharacter)).toBe(whole);
 
-    // and it follows the character: standing somewhere the block covers a
-    // different pair of chunks dissolves a different set of seams
+    // including standing right on one
     withCharacter.character!.globalIsoCoordinates = new GlobalIsoCoordinates(
-      1,
-      1,
+      4,
+      4,
       1
     );
     withCharacter.update(tick);
-    const movedAway = rects(withCharacter);
-    expect(movedAway).toBeLessThan(whole);
-    expect(movedAway).not.toBe(cut);
+    expect(rects(withCharacter)).toBe(whole);
     withCharacter.destroy({ children: true });
   });
 

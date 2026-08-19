@@ -154,7 +154,8 @@ describe("character draw order", () => {
     // the character in one container sorted by the global depth key, which is
     // exact by construction; the real chunk size has to reproduce it pixel for
     // pixel, including where the character straddles the corner where four
-    // chunks meet. This is what the live block is for.
+    // chunks meet. This is what sending each piece to its own column's chunk
+    // is for.
     const cluttered = (s: number, e: number): MapData => {
       const tiles: Record<string, string> = {};
       for (let ts = 3; ts <= 13; ts++) {
@@ -177,10 +178,11 @@ describe("character draw order", () => {
       };
     };
 
-    // The first four are the worst positions there are: drawing the character
-    // in its own chunk instead of in the block puts 109, 97, 95 and 93 pixels
-    // of them in the wrong order. Over a sweep of the whole corner it gets 267
-    // positions out of 676 wrong.
+    // The first four are the worst positions there are: drawing the whole
+    // character in the chunk it stands in, instead of each piece in its own
+    // column's, puts 109, 97, 95 and 93 pixels of them in the wrong order.
+    // Over a sweep of the whole corner it gets 267 positions out of 676
+    // wrong.
     for (const [s, e] of [
       [7.9, 7],
       [7.9, 9.5],

@@ -154,23 +154,6 @@ export const walkVelocity = (
   return { s: towardS * pace, e: towardE * pace };
 };
 
-/**
- * Side of the live block, in chunks — the square of chunks around the
- * character that is drawn as a single container. See Map.syncBlock.
- *
- * Merging chunks gives the whole set ONE rank where each had its own, which is
- * only possible when the block's two sides differ by at most one; the rank is
- * then its middle diagonal, s0 + e1, and being square is what makes that middle
- * a whole number. characterChunks.test.ts checks it against every occluding
- * pair of cells crossing the block's edge.
- *
- * Two chunks of side means the character is never closer than half a chunk —
- * four cells — to the block's edge, against the three a cell constraining the
- * largest entity is ever away (EntityColumns.test.ts). One cell of headroom, so
- * anything bigger than a 2×2 footprint wants a bigger chunk, not a bigger block.
- */
-const BLOCK_SIDE = 2;
-
 /** How far below its feet a character still casts a shadow, in cells */
 const SHADOW_REACH = 16;
 
@@ -204,9 +187,6 @@ export class Map extends Container {
   private cursorMode?: "add" | "remove";
 
   public character: Character | undefined;
-
-  /** The square of chunks around the character, drawn as one. See syncBlock. */
-  private block?: { container: Container; origin: ChunkIsoCoordinates };
 
   /** The shadow under the character, one piece per ground cell. syncShadow. */
   private shadowPieces: Graphics[] = [];
@@ -243,8 +223,8 @@ export class Map extends Container {
     public tileFragmentsTextures: TileFragmentsTextures,
     /**
      * Side of a chunk, in cells. Only tests change it, to put a boundary
-     * everywhere or nowhere. Half of it is the character's distance to the edge
-     * of its block, so it may not go below twice a constraining cell's reach.
+     * everywhere or nowhere: nothing about a character depends on it, since
+     * each of its pieces is drawn by the chunk owning that piece's column.
      */
     chunksSize = 8
   ) {
@@ -355,8 +335,16 @@ export class Map extends Container {
   /**
    * Whether a cell blocks movement. The single seam where "solid" is defined:
    * for now anything in a cell blocks, tiles and objects alike.
+   *
+   * Outside the chunked area everything is solid, so the map is a walled box.
+   * That is what keeps a character over columns that have a chunk to draw it —
+   * see chunkOver — rather than making walking off the edge a case to handle
+   * everywhere. A chunk exists as soon as a single cell of it does, so the wall
+   * stands at the edge of the chunks and not at the edge of the terrain: there
+   * is room to fall off a ledge, none to leave the map.
    */
   private isSolidAt(iso: GlobalIsoCoordinates): boolean {
+    if (!this.getChunkAt(iso)) return true;
     return this.getCellContentAt(iso) !== undefined;
   }
 
@@ -476,9 +464,8 @@ export class Map extends Container {
 
   private destroyChunkIfEmpty(chunk: MapChunk) {
     if (!chunk.isEmpty) return;
-    // A chunk with no cell left may still draw a sprite it does not own: the
-    // cursor. Its views may be lent to the live block, so `children` is not
-    // the question to ask.
+    // A chunk with no cell left may still draw something it does not own: the
+    // cursor, or a piece of a character standing over one of its columns.
     if (chunk.hasViews) return;
     console.debug(
       `Destroying empty chunk at ${chunk.chunkIsoCoordinates.toString()}`
@@ -563,10 +550,6 @@ export class Map extends Container {
     chunk.zIndex = chunkIso.s + chunkIso.e;
     this.chunks[chunkIso.toString()] = chunk;
     this.addChild(chunk);
-    // Editing the map can create a chunk under the character's feet
-    if (this.block && this.isInBlock(chunkIso)) {
-      chunk.lendViewsTo(this.block.container);
-    }
     return chunk;
   }
 
@@ -865,8 +848,8 @@ export class Map extends Container {
   public addCharacterAt(globalIso: GlobalIsoCoordinates, type: CharacterType) {
     if (this.character) {
       // One character per map for now. Without this the previous one would
-      // leave its meshes in the live block forever, still drawn and never
-      // updated again.
+      // leave its meshes in the chunks forever, still drawn and never updated
+      // again.
       console.warn(
         `Replacing the character of the map: only one is supported, ${type} evicts ${this.character.type}`
       );
@@ -982,82 +965,29 @@ export class Map extends Container {
     });
   }
 
-  /** The chunks of the block at `origin` that exist, in no particular order. */
-  private blockChunks(origin: ChunkIsoCoordinates): MapChunk[] {
-    const found: MapChunk[] = [];
-    for (let s = origin.s; s < origin.s + BLOCK_SIDE; s++) {
-      for (let e = origin.e; e < origin.e + BLOCK_SIDE; e++) {
-        const chunk = this.chunks[new ChunkIsoCoordinates(s, e, 0).toString()];
-        if (chunk) found.push(chunk);
-      }
-    }
-    return found;
-  }
-
-  private isInBlock(chunkIso: ChunkIsoCoordinates): boolean {
-    const origin = this.block?.origin;
-    return (
-      origin !== undefined &&
-      chunkIso.s >= origin.s &&
-      chunkIso.s < origin.s + BLOCK_SIDE &&
-      chunkIso.e >= origin.e &&
-      chunkIso.e < origin.e + BLOCK_SIDE
-    );
-  }
-
   /**
-   * Keep the square of chunks around the character drawn as a single
-   * container, and return it.
+   * The chunk that draws whatever stands over the column (s, e).
    *
-   * A chunk is a container, so it is drawn atomically, and a character standing
-   * across two of them needs to come after a cell of one and before a cell of
-   * the other. While it is there, those chunks lend their cells to one block
-   * that sorts cells and character pieces alike by the global depth key — the
-   * order sliceEntityByColumn assumes, which is why it knows nothing of chunks.
+   * A character straddles cells but each of its pieces covers exactly one
+   * column, and a column belongs to exactly one chunk — chunks have no u
+   * dimension. So a piece has a chunk of its own to be drawn by, where it
+   * sorts against that chunk's cells on the same global depth key, and the
+   * chunks themselves keep the diagonal order that is already right for the
+   * cells of that column (see createChunk). Nothing has to be merged.
    *
-   * The chunks outside the block stay atomic, leaving the door open to baking
-   * them into a single texture one day.
+   * Out of the map is an error, not a case: there is nowhere to draw a column
+   * no chunk covers, and nothing should ever be over one — isSolidAt walls the
+   * map at the edge of its chunks. This is the assertion, not the handling.
    */
-  private syncBlock(iso: GlobalIsoCoordinates): Container {
-    const size = this.chunksSize;
-    // the block whose centre is nearest, so that the character is never within
-    // half a chunk of its edge
-    const origin = new ChunkIsoCoordinates(
-      Math.round(iso.s / size - BLOCK_SIDE / 2),
-      Math.round(iso.e / size - BLOCK_SIDE / 2),
-      0
-    );
-    if (this.block?.origin.equals(origin)) return this.block.container;
-
-    let container = this.block?.container;
-    if (!container) {
-      container = new Container();
-      container.eventMode = "none";
-      container.sortableChildren = true;
-      this.addChild(container);
+  private chunkOver(s: number, e: number): MapChunk {
+    const chunkIso = this.toChunkIso(new GlobalIsoCoordinates(s, e, 0));
+    const chunk = this.chunks[chunkIso.toString()];
+    if (!chunk) {
+      throw new Error(
+        `Nothing to draw the column ${s},${e} in: chunk ${chunkIso.toString()} is outside the map`
+      );
     }
-    this.releaseBlockChunks();
-    this.block = { container, origin };
-    container.zIndex = origin.s + origin.e + BLOCK_SIDE - 1;
-    for (const chunk of this.blockChunks(origin)) {
-      chunk.lendViewsTo(container);
-    }
-    return container;
-  }
-
-  private releaseBlockChunks() {
-    if (!this.block) return;
-    for (const chunk of this.blockChunks(this.block.origin)) {
-      chunk.takeViewsBack();
-    }
-  }
-
-  private dissolveBlock() {
-    if (!this.block) return;
-    this.releaseBlockChunks();
-    this.removeChild(this.block.container);
-    this.block.container.destroy({ children: false });
-    this.block = undefined;
+    return chunk;
   }
 
   /**
@@ -1114,21 +1044,20 @@ export class Map extends Container {
     };
   }
 
-  private syncShadow(block: Container, character: Character) {
+  private syncShadow(character: Character) {
     const iso = character.globalIsoCoordinates;
     const { radius, centre } = this.shadowDisc(character);
+    // Over the cells of the HITBOX, not those of the disc: the disc lies
+    // inside the footprint, so nothing is lost, and this is the range that is
+    // certainly inside the map — floor(centre + radius) picks up the cell past
+    // a box standing flush against a boundary, which has no chunk to be drawn
+    // in when that boundary is the edge of the map. Cells the disc misses drop
+    // out on their own, with no run to paint.
+    const cells = IsoBox.standingOn(iso, character.hitbox).cells();
 
     let used = 0;
-    for (
-      let cs = Math.floor(centre.s - radius);
-      cs <= Math.floor(centre.s + radius);
-      cs++
-    ) {
-      for (
-        let ce = Math.floor(centre.e - radius);
-        ce <= Math.floor(centre.e + radius);
-        ce++
-      ) {
+    for (let cs = cells.min.s; cs < cells.max.s; cs++) {
+      for (let ce = cells.min.e; ce < cells.max.e; ce++) {
         const ground = this.groundUnder(cs, ce, iso.u);
         if (ground === undefined) continue;
         const runs = shadowRuns(cs, ce, centre, radius);
@@ -1137,7 +1066,7 @@ export class Map extends Container {
         // below the cell the character's pieces are keyed from, and those take
         // a fraction above it (EntityColumns.subCellKey), so the quarter only
         // ever has to clear the cell the shadow lies on.
-        this.paintShadow(used++, block, runs, {
+        this.paintShadow(used++, this.chunkOver(cs, ce), runs, {
           at: new GlobalIsoCoordinates(cs, ce, ground).toXY(),
           zIndex: paintersOrderKey(cs, ce, ground) + 0.25,
         });
@@ -1152,19 +1081,19 @@ export class Map extends Container {
    * The guard is not an optimisation: Pixi rebuilds the draw instructions of a
    * whole render group as soon as one Graphics in it reports a change, and
    * GraphicsPipe.validateRenderable reports one for anything batchable without
-   * looking at what changed. Redrawing an unmoved shadow would cost the live
-   * block's entire instruction set, every frame, standing still included.
+   * looking at what changed. Redrawing an unmoved shadow would cost its chunk's
+   * entire instruction set, every frame, standing still included.
    */
   private paintShadow(
     index: number,
-    block: Container,
+    host: MapChunk,
     runs: ShadowRun[],
     where: { at: { x: number; y: number }; zIndex: number }
   ) {
     const piece = (this.shadowPieces[index] ??= new Graphics({
       eventMode: "none",
     }));
-    if (piece.parent !== block) block.addChild(piece);
+    if (piece.parent !== host) host.addChild(piece);
     piece.x = where.at.x;
     piece.y = where.at.y;
     piece.zIndex = where.zIndex;
@@ -1174,33 +1103,41 @@ export class Map extends Container {
     paintRuns(piece, runs);
   }
 
+  /**
+   * Put away the pieces this frame had no use for.
+   *
+   * Detached and not merely cleared: a piece left in the last chunk it was
+   * drawn in would keep that chunk from ever being destroyed once emptied, and
+   * a chunk holding an invisible Graphics is exactly the kind of thing that is
+   * never noticed until it is a bug.
+   */
   private clearShadowPiecesFrom(index: number) {
     for (let spare = index; spare < this.shadowPieces.length; spare++) {
+      const piece = this.shadowPieces[spare];
+      piece.parent?.removeChild(piece);
       if (this.shadowShapes[spare] === "") continue;
       this.shadowShapes[spare] = "";
-      this.shadowPieces[spare].clear();
+      piece.clear();
     }
   }
 
   /**
    * A character straddles cells, so it cannot be a single sprite with a single
    * depth key: it is cut into one piece per column of the map it stands over,
-   * each drawn at that column's key. They all go into the live block, whose
-   * cells are sorted by that same key — see syncBlock.
+   * each drawn at that column's key, by the chunk that owns that column — where
+   * it sorts against the cells on the very same key. See chunkOver.
    */
   private syncView() {
     const character = this.character;
     if (!character) {
-      this.dissolveBlock();
       this.clearShadowPiecesFrom(0);
       return;
     }
-    const block = this.syncBlock(character.globalIsoCoordinates);
-    this.syncShadow(block, character);
+    this.syncShadow(character);
     if (character.needsSlicing) {
       character.setSlices(sliceEntityByColumn(character.shape));
     }
-    character.render(block);
+    character.render((s, e) => this.chunkOver(s, e));
   }
 
   private updateCosmetics(time: Ticker) {
@@ -1222,18 +1159,13 @@ export class Map extends Container {
    * and drawing only the min sides also means one line per boundary rather than
    * two abutting ones.
    *
-   * A boundary the live block has dissolved is NOT drawn: while those chunks
-   * lend their cells to one container they really are one for the draw order,
-   * and the overlay is meant to show where it is still cut. The block outline
-   * survives, so it reads as one big chunk following the character.
+   * Every boundary is drawn, always: chunks are never merged, so what the
+   * overlay shows is what the draw order actually does.
    *
-   * One Graphics per chunk, rebuilt only when what it would draw has changed —
-   * the chunk's own cells, or which of its two edges the block has swallowed,
-   * since the block moves without any chunk changing. All of them in an overlay
-   * above the map rather than inside the chunks: a line left in a chunk would
-   * sink under the block exactly around the character. Being above everything
-   * it also shows through the terrain in front of it, which for finding a
-   * boundary is worth more than looking solid.
+   * One Graphics per chunk, rebuilt only when the chunk's own cells changed.
+   * All of them in an overlay above the map rather than inside the chunks,
+   * where they would be hidden by the terrain in front of them — for finding a
+   * boundary, showing through is worth more than looking solid.
    */
   private syncChunkBounds() {
     if (!debugViewEnabled()) {
@@ -1254,27 +1186,15 @@ export class Map extends Container {
       delete this.chunkBounds[key];
     }
 
-    const block = this.block;
-    const merged = (s: number, e: number) =>
-      block !== undefined &&
-      s >= block.origin.s &&
-      s < block.origin.s + BLOCK_SIDE &&
-      e >= block.origin.e &&
-      e < block.origin.e + BLOCK_SIDE;
-
     for (const key of Object.keys(this.chunks) as IsoString[]) {
       const chunk = this.chunks[key];
-      const { s: cs, e: ce } = chunk.chunkIsoCoordinates;
-      // each edge is a boundary with one neighbour: gone if the block holds both
-      const north = !(merged(cs, ce) && merged(cs - 1, ce));
-      const west = !(merged(cs, ce) && merged(cs, ce - 1));
       const drawn = (this.chunkBounds[key] ??= {
         line: this.chunkBoundsOverlay.addChild(
           new Graphics({ eventMode: "none" })
         ),
         signature: "",
       });
-      const signature = `${chunk.revision},${north},${west}`;
+      const signature = `${chunk.revision}`;
       if (drawn.signature === signature) continue;
       drawn.signature = signature;
       drawn.line.clear();
@@ -1288,8 +1208,8 @@ export class Map extends Container {
         if (!this.isInShell(iso)) continue;
         const xy = iso.toXY();
         const runs = [
-          ...(north && local.s === 0 ? NORTH_EDGE_RUNS : []),
-          ...(west && local.e === 0 ? WEST_EDGE_RUNS : []),
+          ...(local.s === 0 ? NORTH_EDGE_RUNS : []),
+          ...(local.e === 0 ? WEST_EDGE_RUNS : []),
         ];
         for (const run of runs) {
           drawn.line.rect(xy.x + run.x, xy.y + run.y, run.width, 1);
@@ -1427,13 +1347,10 @@ export class Map extends Container {
   }
 
   public destroy(options?: { children?: boolean; texture?: boolean }) {
+    // both borrow a chunk to be drawn in, so both go before the chunks do
     this.character?.destroy();
     this.character = undefined;
-    // they live in the block, which is dissolved without destroying what it
-    // was only ever lent
     for (const piece of this.shadowPieces) piece.destroy();
-    // before the chunks: they take their views back from it
-    this.dissolveBlock();
     this.cursorSprites.up.destroy();
     this.cursorSprites.east.destroy();
     this.cursorSprites.south.destroy();

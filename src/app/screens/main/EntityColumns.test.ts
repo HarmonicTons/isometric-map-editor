@@ -796,11 +796,12 @@ describe("the cut, measured", () => {
   };
 
   it("is never constrained by a cell more than three cells away", () => {
-    // What Map.BLOCK_SIDE is sized against: a cell landing between two of the
-    // entity's keys AND meeting it on screen has to be drawn alongside it, so
-    // it can never be left in a chunk of its own. The block guarantees four,
-    // so the headroom is one cell — measured on the LARGEST entity, since the
-    // reach grows with the footprint and the block is sized once for all.
+    // A cell landing between two of the entity's keys AND meeting it on screen
+    // has to be ordered against it. How far those reach used to size the block
+    // of chunks that had to be merged around a character; nothing depends on
+    // it now that each piece is drawn by its own column's chunk, and the
+    // chunk ranks are right at any distance (characterChunks.test.ts). Kept as
+    // a measurement of how far the cut's influence goes.
     //
     // More than the footprint suggests, because a piece takes a key a fraction
     // ABOVE its column: a cell on the diagonal beyond the last column still

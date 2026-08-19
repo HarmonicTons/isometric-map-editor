@@ -584,7 +584,9 @@ describe("what the camera looks at when it follows the character", () => {
     const map = buildHeadlessMap({
       tiles,
       objects: {},
-      characters: { "8,8,4": SUBJECT },
+      // nothing under it, but still over the map: off the map there is no
+      // chunk to draw it in, and Map.chunkOver says so rather than coping
+      characters: { "4,4,4": SUBJECT },
     } as MapData);
     expect(map.characterCentre).toBeDefined();
     map.destroy({ children: true });
@@ -723,7 +725,8 @@ describe("the character's shadow", () => {
 
   it("is not drawn when there is nothing below to catch it", () => {
     const map = landed();
-    map.character!.globalIsoCoordinates = new GlobalIsoCoordinates(20, 20, 3);
+    // a column of the map with no tile in it, the floor being s, e in [2, 6]
+    map.character!.globalIsoCoordinates = new GlobalIsoCoordinates(0, 0, 3);
     map.update({ deltaMS: 1000 / 60, lastTime: 0 } as Ticker);
     expect(shadowsOf(map)).toEqual([]);
     map.destroy({ children: true });

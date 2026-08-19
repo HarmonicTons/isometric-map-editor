@@ -22,8 +22,9 @@ import {
  * key in floor(u) + [0, 1) works, and the free unit is what tells two entities
  * sharing a column apart (see subCellKey).
  *
- * Assumes everything constraining the entity is drawn in the same container,
- * sorted by the same key — Map.syncBlock and BLOCK_SIDE.
+ * A piece therefore belongs to a single column, which belongs to a single
+ * chunk: Map draws it there, alongside that chunk's own cells and on the same
+ * key — see Map.chunkOver.
  */
 
 /** Everything the cut is decided from. */

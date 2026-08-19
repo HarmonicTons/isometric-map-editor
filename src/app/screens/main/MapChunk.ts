@@ -26,10 +26,12 @@ export type CellContent = TileType | Tile | MapObject;
  * A chunk only knows its own local domain.
  * Anything that may cross a chunk boundary must go through Map
  *
- * It is also the container its cells are drawn in, which makes a chunk atomic
- * in the draw order — except while it is part of the live block around a
- * character, where it lends its views out so they can interleave with the
- * character's own. See Map.syncBlock.
+ * It is also the container everything standing over its columns is drawn in —
+ * its own cells, and the pieces a character straddling them is cut into. All
+ * of them are sorted by the same global depth key, so a chunk is atomic in the
+ * draw order without ever being merged with a neighbour: a character piece
+ * covers exactly one column, and a column belongs to exactly one chunk. See
+ * Map.chunkOver.
  */
 export class MapChunk extends Container {
   public cells: Record<IsoString, CellContent> = {};
@@ -50,14 +52,6 @@ export class MapChunk extends Container {
    * it is a counter and not an event: it is asked, never announced.
    */
   public revision = 0;
-
-  /** Container the views below are drawn in: this chunk, or the live block. */
-  private viewHost: Container = this;
-  /**
-   * Every view this chunk put in its host. Not `children`, because the host is
-   * not always this chunk: this is what it can hand over and take back.
-   */
-  private readonly views = new Set<Container>();
 
   constructor(
     public size: number,
@@ -103,34 +97,12 @@ export class MapChunk extends Container {
     return Object.keys(this.cells).length === 0;
   }
 
-  /** Whether it still draws anything, wherever its views currently live. */
-  public get hasViews(): boolean {
-    return this.views.size > 0;
-  }
-
-  private attach(view: Container) {
-    this.views.add(view);
-    this.viewHost.addChild(view);
-  }
-
-  private release(view: Container) {
-    this.views.delete(view);
-    view.parent?.removeChild(view);
-  }
-
   /**
-   * Draw this chunk's cells inside `host` instead of inside itself, so that
-   * they take their place in a wider draw order. Pixi reparents on addChild,
-   * so this is the whole of it.
+   * Whether it still draws anything: a cell of its own, the cursor, or a piece
+   * of a character standing over one of its columns.
    */
-  public lendViewsTo(host: Container) {
-    if (host === this.viewHost) return;
-    this.viewHost = host;
-    for (const view of this.views) host.addChild(view);
-  }
-
-  public takeViewsBack() {
-    this.lendViewsTo(this);
+  public get hasViews(): boolean {
+    return this.children.length > 0;
   }
 
   private assertInside(iso: LocalIsoCoordinates) {
@@ -183,8 +155,8 @@ export class MapChunk extends Container {
       skipFragmentsSetup,
     });
     // Views are placed in map pixels, never relative to the chunk: a chunk is
-    // a grouping in the draw order, not a coordinate frame, and its views move
-    // between it and the live block without ever changing position.
+    // a grouping in the draw order, not a coordinate frame, and a character's
+    // pieces are placed on the same footing as the cells they mix with.
     const xy = globalIso.toXY();
     tile.x = xy.x;
     tile.y = xy.y;
@@ -220,7 +192,7 @@ export class MapChunk extends Container {
     }
     this.cells[key] = tile.type;
     this.revision++;
-    this.release(tile);
+    this.removeChild(tile);
     tile.destroy({ children: true });
   }
 
@@ -240,7 +212,7 @@ export class MapChunk extends Container {
     mapObject.x = xy.x + 16;
     mapObject.y = xy.y + 24;
     mapObject.zIndex = globalIso.paintersOrderKey();
-    this.attach(mapObject);
+    this.addChild(mapObject);
     // every level it occupies, so highestLevel is only right once they are
     // known: a large_pine is eleven cells tall, not one
     for (let i = 0; i < mapObject.objectHeight; i++) {
@@ -273,7 +245,7 @@ export class MapChunk extends Container {
     } else {
       delete this.cells[iso.toString()];
     }
-    this.release(cell);
+    this.removeChild(cell);
     cell.destroy({ children: true });
   }
 
@@ -288,9 +260,9 @@ export class MapChunk extends Container {
 
   private syncTileAttachment(tile: Tile) {
     if (tile.hasVisibleFragments && !tile.parent) {
-      this.attach(tile);
+      this.addChild(tile);
     } else if (!tile.hasVisibleFragments && tile.parent) {
-      this.release(tile);
+      this.removeChild(tile);
     }
   }
 
@@ -311,9 +283,6 @@ export class MapChunk extends Container {
   }
 
   public override destroy(options?: DestroyOptions) {
-    // Views lent to the live block would outlive it otherwise
-    this.takeViewsBack();
-    this.views.clear();
     for (const key of Object.keys(this.cells) as IsoString[]) {
       const cell = this.cells[key];
       if (cell instanceof Tile && !cell.parent) {
@@ -329,10 +298,10 @@ export class MapChunk extends Container {
     sprite.x = xy.x;
     sprite.y = xy.y;
     sprite.zIndex = globalIso.paintersOrderKey();
-    this.attach(sprite);
+    this.addChild(sprite);
   }
 
   public removeCursorSprite(sprite: Sprite) {
-    this.release(sprite);
+    this.removeChild(sprite);
   }
 }

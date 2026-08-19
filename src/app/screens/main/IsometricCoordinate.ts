@@ -209,9 +209,10 @@ export class GlobalIsoCoordinates extends IsoCoordinates {
   /**
    * Depth key of this cell, for the zIndex of whatever displays it.
    *
-   * Defined on global coordinates only: the live block draws the cells of four
-   * chunks and the pieces of a character in one container, so every key meeting
-   * there has to be counted from the same origin.
+   * Defined on global coordinates only: a chunk draws its own cells and the
+   * pieces of any character standing over its columns in one container, and
+   * the chunks are ranked against each other by their own diagonal, so every
+   * key that meets has to be counted from the same origin.
    */
   public paintersOrderKey(): number {
     return paintersOrderKey(this.s, this.e, this.u);

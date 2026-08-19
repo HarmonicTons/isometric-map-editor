@@ -1,30 +1,33 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { Container, Graphics, Mesh, Ticker } from "pixi.js";
+import { Container, Mesh, Ticker } from "pixi.js";
 import { buildHeadlessMap } from "./composeMapImage";
 import { Map as IsometricMap, MapData } from "../Map";
 import { GlobalIsoCoordinates } from "../IsometricCoordinate";
 import { MapChunk } from "../MapChunk";
 
 /**
- * The live block: the square of chunks a character is in, drawn as one
- * container so that its sprite can interleave with their cells.
+ * A character drawn by the chunks it stands over.
+ *
+ * Each piece of its sprite covers exactly one column of the map, and a column
+ * belongs to exactly one chunk — so every piece has a chunk of its own to be
+ * drawn by, where it sorts against that chunk's cells on the same global key.
+ * Nothing is merged, nothing is lent.
  *
  * The bookkeeping, not the depth order (characterDrawOrder.test.ts owns that):
- * a cell must be drawn exactly once wherever it lives, and the chunks must get
- * their cells back when the character walks away, or the map slowly hands
- * everything to one container and loses its chunking.
+ * a piece must be in the right chunk, leave it when the character does, and
+ * never conjure a chunk into existence on its way past.
  */
 
 const CHARACTER = "0004-charmander";
 
 /**
- * A long walkway that stops exactly on the chunk boundary at e = 8, so a
- * character walking along its edge crosses a boundary on every axis.
+ * A long walkway straddling the chunk boundary at e = 8, so a character
+ * walking along it crosses a boundary on every axis.
  */
 const walkway = (): Record<string, string> => {
   const tiles: Record<string, string> = {};
   for (let s = 0; s <= 40; s++) {
-    for (let e = 4; e <= 7; e++) {
+    for (let e = 4; e <= 11; e++) {
       tiles[`${s},${e},0`] = "dirt";
     }
   }
@@ -38,10 +41,6 @@ const emptyChunks = (map: IsometricMap) =>
   Object.entries(map.chunks)
     .filter(([, chunk]) => chunk.isEmpty && !chunk.hasViews)
     .map(([key]) => key);
-
-/** The live block is the only child of the map that is not a chunk. */
-const blockOf = (map: IsometricMap): Container | undefined =>
-  map.children.find((child) => !(child instanceof MapChunk));
 
 const descendants = (node: Container): Container[] =>
   node.children.flatMap((child) => [child, ...descendants(child)]);
@@ -74,58 +73,40 @@ const occludingOffsets = (() => {
   return offsets;
 })();
 
-describe("the live block", () => {
+describe("a character drawn by the chunks it stands over", () => {
   beforeAll(() => {
     vi.spyOn(console, "debug").mockImplementation(() => {});
   });
 
-  it("is ranked so that it never contradicts a chunk left outside it", () => {
-    // What BLOCK_SIDE rests on. Merging chunks gives the whole set one rank
-    // where each had its own, so a chunk outside can end up needing to be
-    // drawn both before one block chunk and after another. Rather than trust
-    // the argument in that doc-block — which was wrong twice before it was
-    // right — take every pair of cells where one hides the other, keep the
-    // pairs that straddle the block's edge, and check the ranks agree.
+  it("is safe to put in a chunk, since chunks never contradict a cell key", () => {
+    // What the whole thing rests on. A chunk is atomic in the draw order and
+    // ranked by its diagonal alone, so a piece dropped into one inherits that
+    // rank against every cell outside it. That is only sound if the coarse
+    // rank never disagrees with the cell keys it stands in for. Rather than
+    // trust the argument — the block's version of it was wrong twice before it
+    // was right — take every pair of cells where one hides the other, keep the
+    // pairs that straddle a chunk boundary, and check the ranks agree.
     const contradictions: string[] = [];
     let checked = 0;
     for (const size of [4, 8]) {
-      for (const side of [2, 3]) {
-        for (const [cs0, ce0] of [
-          [0, 0],
-          [-2, 1],
-        ]) {
-          // the rank syncBlock gives the block: its middle diagonal
-          const rank = cs0 + ce0 + side - 1;
-          const chunkOf = (v: number) => Math.floor(v / size);
-          const inBlock = (s: number, e: number) =>
-            chunkOf(s) >= cs0 &&
-            chunkOf(s) < cs0 + side &&
-            chunkOf(e) >= ce0 &&
-            chunkOf(e) < ce0 + side;
-          /** Where the cell is drawn among the map's children */
-          const rankOf = (s: number, e: number) =>
-            inBlock(s, e) ? rank : chunkOf(s) + chunkOf(e);
-
-          const from = cs0 * size - 8;
-          const to = (cs0 + side) * size + 8;
-          const fromE = ce0 * size - 8;
-          const toE = (ce0 + side) * size + 8;
-          for (let s = from; s < to; s++) {
-            for (let e = fromE; e < toE; e++) {
-              for (let u = 0; u < 24; u++) {
-                for (const [ds, de, du] of occludingOffsets) {
-                  const fs = s + ds;
-                  const fe = e + de;
-                  // only pairs the block's edge runs between: the rest is
-                  // settled inside one container, by the cells' own keys
-                  if (inBlock(s, e) === inBlock(fs, fe)) continue;
-                  checked++;
-                  if (rankOf(fs, fe) > rankOf(s, e)) continue;
-                  contradictions.push(
-                    `size ${size} side ${side} at ${cs0},${ce0}: ${fs},${fe},${u + du} hides ${s},${e},${u} but is not drawn after it`
-                  );
-                }
-              }
+      const chunkOf = (v: number) => Math.floor(v / size);
+      const rankOf = (s: number, e: number) => chunkOf(s) + chunkOf(e);
+      const sameChunk = (s: number, e: number, fs: number, fe: number) =>
+        chunkOf(s) === chunkOf(fs) && chunkOf(e) === chunkOf(fe);
+      for (let s = -size; s < 2 * size; s++) {
+        for (let e = -size; e < 2 * size; e++) {
+          for (let u = 0; u < 24; u++) {
+            for (const [ds, de, du] of occludingOffsets) {
+              const fs = s + ds;
+              const fe = e + de;
+              // only pairs a boundary runs between: the rest is settled inside
+              // one container, by the cells' own keys
+              if (sameChunk(s, e, fs, fe)) continue;
+              checked++;
+              if (rankOf(fs, fe) > rankOf(s, e)) continue;
+              contradictions.push(
+                `size ${size}: ${fs},${fe},${u + du} hides ${s},${e},${u} but is not drawn after it`
+              );
             }
           }
         }
@@ -136,10 +117,50 @@ describe("the live block", () => {
     expect(checked).toBeGreaterThan(100_000);
   });
 
+  it("puts every piece in the chunk that owns its column", () => {
+    const map = buildHeadlessMap({
+      tiles: walkway(),
+      objects: {},
+      characters: { "7.6,7.6,1": CHARACTER },
+    } as MapData);
+    map.update(tick);
+    // By key rather than by identity: two columns on the same diagonal take
+    // the same key — they never hide one another — so which mesh is which is
+    // not a question, and where each key is drawn is the whole of it.
+    const keysPerChunk = (
+      entries: { chunk: string; zIndex: number }[]
+    ): Record<string, number[]> => {
+      const grouped: Record<string, number[]> = {};
+      for (const { chunk, zIndex } of entries) {
+        (grouped[chunk] ??= []).push(zIndex);
+      }
+      for (const keys of Object.values(grouped)) keys.sort();
+      return grouped;
+    };
+
+    const wanted = keysPerChunk(
+      map.character!.slicing!.pieces.map((cut) => ({
+        chunk: `${Math.floor(cut.s / 8)},${Math.floor(cut.e / 8)},0`,
+        zIndex: cut.zIndex,
+      }))
+    );
+    // the position is a corner of four chunks: this checks all of them
+    expect(Object.keys(wanted)).toHaveLength(4);
+    expect(
+      keysPerChunk(
+        characterPieces(map).map((mesh) => ({
+          chunk: (mesh.parent as MapChunk).chunkIsoCoordinates.toString(),
+          zIndex: mesh.zIndex,
+        }))
+      )
+    ).toEqual(wanted);
+    map.destroy({ children: true });
+  });
+
   it("never creates a chunk just by walking through it", () => {
-    // The character used to hand its pieces to whichever chunk ordered them,
-    // creating empty ones as it went and having to reclaim them. It draws in
-    // the block now, so walking must not touch the set of chunks at all.
+    // Walking must not touch the set of chunks at all: a piece is drawn by a
+    // chunk that is already there, or the character has left the map — which
+    // Map.isSolidAt makes impossible.
     const map = buildHeadlessMap({
       tiles: walkway(),
       objects: {},
@@ -161,28 +182,17 @@ describe("the live block", () => {
     map.destroy({ children: true });
   });
 
-  it("draws every cell exactly once, wherever it walks", () => {
+  it("leaves no piece behind in a chunk it has walked out of", () => {
     const map = buildHeadlessMap({
       tiles: walkway(),
       objects: {},
       characters: { "0,7.2,1": CHARACTER },
     } as MapData);
     map.update(tick);
-    // Everything the map draws that is a cell. The character's pieces (meshes)
-    // and its shadow (graphics) are the two things whose count varies as it
-    // walks, and neither of them is a cell.
-    const cellsDrawn = () =>
-      descendants(map).filter(
-        (child) =>
-          child.parent === blockOf(map) &&
-          !(child instanceof Mesh) &&
-          !(child instanceof Graphics)
-      ).length +
-      Object.values(map.chunks).reduce(
-        (total, chunk) => total + chunk.children.length,
-        0
-      );
-    const expected = cellsDrawn();
+    const cells = Object.values(map.chunks).reduce(
+      (total, chunk) => total + chunk.children.length,
+      0
+    );
 
     for (let step = 0; step <= 200; step++) {
       map.character!.globalIsoCoordinates = new GlobalIsoCoordinates(
@@ -191,26 +201,43 @@ describe("the live block", () => {
         1
       );
       map.update(tick);
-      expect(cellsDrawn()).toBe(expected);
+      // exactly the pieces it is currently cut into, nowhere else
+      expect(characterPieces(map)).toHaveLength(map.character!.pieceCount);
     }
+    // and the cells are back to exactly what they were, none added or dropped
+    map.character!.globalIsoCoordinates = new GlobalIsoCoordinates(0, 7.2, 1);
+    map.update(tick);
+    expect(
+      Object.values(map.chunks).reduce(
+        (total, chunk) => total + chunk.children.length,
+        0
+      )
+    ).toBe(cells);
     map.destroy({ children: true });
   });
 
-  it("gives a chunk its cells back once the character has left it", () => {
+  it("cannot walk off the map, so there is always a chunk to draw it in", () => {
+    // What makes chunkOver total, and the reason it may simply throw. The wall
+    // is at the edge of the CHUNKS, not of the terrain: the walkway stops at
+    // e = 11, so the character does fall off it, and the map stops at e = 15.
     const map = buildHeadlessMap({
       tiles: walkway(),
       objects: {},
-      characters: { "4,5,1": CHARACTER },
+      characters: { "4,10,1": CHARACTER },
     } as MapData);
-    map.update(tick);
-    const home = map.chunks["0,0,0"];
-    // lent: the chunk draws nothing itself while it is in the block
-    expect(home.children).toEqual([]);
-    expect(home.hasViews).toBe(true);
-
-    map.character!.globalIsoCoordinates = new GlobalIsoCoordinates(36, 5, 1);
-    map.update(tick);
-    expect(home.children.length).toBeGreaterThan(0);
+    // straight down the screen, far enough to cross the map several times over
+    vi.stubGlobal("navigator", {
+      getGamepads: () => [{ axes: [0, 1], buttons: [{ pressed: false }] }],
+    });
+    try {
+      for (let frame = 0; frame < 600; frame++) map.update(tick);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    // it left the walkway and fell, and stopped at the last column of chunk 1
+    expect(map.character!.globalIsoCoordinates.u).toBeLessThan(0);
+    expect(map.character!.globalIsoCoordinates.e).toBeGreaterThan(11);
+    expect(map.character!.globalIsoCoordinates.e).toBeLessThan(16);
     map.destroy({ children: true });
   });
 
