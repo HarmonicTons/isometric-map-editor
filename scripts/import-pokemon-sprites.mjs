@@ -12,7 +12,7 @@
  *   raw-assets/game{m}/characters/<type>/    the atlases AssetPack ships
  *   public/characters/<type>.json            the description, fetched at runtime
  *
- * The dump stays out of raw-assets and out of git: it holds 34 animations per
+ * The dump stays out of raw-assets and out of git: it holds many animations per
  * character, under names every character would claim at once. This script is
  * how you get it back.
  *
