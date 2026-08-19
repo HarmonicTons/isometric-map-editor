@@ -11,10 +11,7 @@ import { NOMINAL_WALK_SPEED } from "./Character";
 
 /**
  * Moving a box through the map: what the sticks ask for, what gravity does, and
- * how far either actually gets.
- *
- * Everything here takes the map as a single predicate — `isSolid` — so none of
- * it knows what a chunk or a tile is.
+ * how far either actually gets. The map comes in as a single predicate.
  */
 
 /** Whether a cell refuses to let anything through */
@@ -23,23 +20,15 @@ export type IsSolid = (iso: GlobalIsoCoordinates) => boolean;
 /** Fall acceleration, in cells per second squared */
 const GRAVITY = 40;
 
-/**
- * Fastest it can fall, in cells per second. A feel knob, not a safety net: Pixi
- * clamps a hitching frame to 100 ms, so a long drop still crosses two cells
- * between two frames. What keeps it out of the floor is the sweep in
- * `freeDistance`, which marches the box however far the move reaches.
- */
+/** Fastest it can fall, in cells per second */
 const TERMINAL_SPEED = 20;
 
-/** How far below its feet the ground is looked for: only a floor it rests on */
+/** How far below its feet the ground is looked for */
 export const GROUND_PROBE = 1e-6;
 
 /**
- * How fast a body `height` cells tall leaves the ground, in cells per second.
- *
- * A character jumps its own height, which needs no tuning since a body already
- * has one. A jump reaches v² / 2g, hence the square root; the floor keeps
- * anything imported able to climb the one-cell steps scenery is built from.
+ * How fast a body `height` cells tall leaves the ground, in cells per second: a
+ * character jumps its own height, and never less than one cell.
  */
 export const jumpSpeedFor = (height: number): number =>
   Math.sqrt(2 * GRAVITY * Math.max(1, height));
@@ -67,12 +56,9 @@ export const fallVelocity = (
 };
 
 /**
- * Where the stick asks the character to walk, in cells per second.
- *
- * The stick points on the screen, the character walks in the grid, so this
- * undoes the projection x = 16(e − s), y = 8(e + s). Normalising in the GRID is
- * what keeps the speed constant in cells: normalised on screen, walking up it
- * would cover twice the ground of walking across it.
+ * Where the stick asks the character to walk, in cells per second: the stick
+ * points on the screen, so this undoes the projection and normalises in the
+ * GRID, where the speed has to be constant.
  */
 export const walkVelocity = (
   leftStickX: number,
@@ -89,11 +75,9 @@ export const walkVelocity = (
 };
 
 /**
- * First solid cell met by marching a box along a direction, or undefined if
- * there is none within `searchDepth` cells.
- *
- * Scanning from the box's leading face, so a cell it already overlaps is
- * never returned.
+ * First solid cell met by marching a box along a direction, or undefined within
+ * `searchDepth` cells. Scanned from the box's leading face, so a cell it
+ * already overlaps is never returned.
  */
 const firstSolidCellTowards = (
   isSolid: IsSolid,
@@ -126,10 +110,8 @@ const firstSolidCellTowards = (
 };
 
 /**
- * How far the box may actually travel along one axis, given the intended
- * `delta`: the delta itself when nothing is in the way, or the exact
- * distance to the obstacle. Never changes sign, so a box can never be
- * pushed backwards.
+ * How far the box may actually travel along one axis: the intended `delta`, or
+ * the exact distance to the obstacle. Never changes sign.
  */
 export const freeDistance = (
   isSolid: IsSolid,
@@ -153,11 +135,9 @@ export const freeDistance = (
  * Where a hitbox standing at `from` ends up after asking to move by
  * (deltaS, deltaE), stopped by whatever is in the way and sliding along it.
  *
- * One axis at a time, the second swept from where the FIRST left the box:
- * against the same starting box neither sweep ever sees the cell diagonally
- * ahead, and a 1×1 pillar approached corner-on would be passable. The larger
- * component goes first, so the outcome does not depend on which axis happens
- * to be called s.
+ * One axis at a time, the larger first, the second swept from where the FIRST
+ * left the box — sweeping both against the starting box would let a diagonal
+ * step through a solid corner.
  */
 export const slideAlong = (
   isSolid: IsSolid,

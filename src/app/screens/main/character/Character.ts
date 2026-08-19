@@ -34,35 +34,22 @@ export type CharacterType = string & { readonly __brand: "CharacterType" };
 
 export type { CharacterAnimationName, CharacterDirection };
 
-/**
- * The walking speed the sheets are drawn for, in cells per second — Map walks
- * the character at exactly this, so the cadence follows the ground covered and
- * still comes out at the drawn rhythm at full stick.
- */
+/** The walking speed the sheets are drawn for, in cells per second */
 export const NOMINAL_WALK_SPEED = 3;
 
 /** A tick of the durations in the sheets, in seconds */
 const TICK = 1 / 60;
 
 /**
- * How long a character stands doing nothing before it plays its idle animation.
- *
- * The idle sheet is a stretch and a yawn, not a way of standing: looped it
- * would be a character fidgeting without pause. Between two of them it holds
- * the first frame of its walk cycle, which IS its way of standing.
+ * How long a character stands doing nothing before it plays its idle animation
+ * once. Between two of them it holds the resting frame of its walk cycle.
  */
 export const IDLE_EVERY = 5;
 
 /** The frame of the walk cycle a character rests on */
 const RESTING_FRAME = 0;
 
-/**
- * The frame a run of durations is on after `ticks`, looping.
- *
- * Takes a fractional number of ticks, which is what lets one function serve
- * both the animations played by the clock and the one played by the ground the
- * character has covered.
- */
+/** The frame a run of durations is on after `ticks`, looping */
 export const frameAtTicks = (durations: number[], ticks: number): number => {
   const cycle = durations.reduce((total, held) => total + held, 0);
   let left = ((ticks % cycle) + cycle) % cycle;
@@ -75,10 +62,8 @@ export const frameAtTicks = (durations: number[], ticks: number): number => {
 
 /**
  * The eight-way heading a movement asks for, or undefined if it asks for none.
- *
- * The sheet's rows are 45° apart on SCREEN and our axes are not, so the
- * movement is projected before its angle is taken: comparing s against e
- * instead would turn the character 22.5° wrong.
+ * The sheet's rows are 45° apart on SCREEN, so the movement is projected before
+ * its angle is taken.
  */
 export const headingOf = (
   deltaS: number,
@@ -87,8 +72,7 @@ export const headingOf = (
   if (deltaS === 0 && deltaE === 0) return undefined;
   const x = 16 * (deltaE - deltaS);
   const y = 8 * (deltaE + deltaS);
-  // DIRECTIONS is in the order the rows are stacked: `se` is straight down the
-  // screen, and each next one is 45 degrees counter-clockwise from it
+  // `se` is straight down the screen, each next one 45° counter-clockwise
   const turns = 2 - Math.atan2(y, x) / (Math.PI / 4);
   return DIRECTIONS[
     ((Math.round(turns) % DIRECTIONS.length) + DIRECTIONS.length) %
@@ -106,8 +90,7 @@ const frameName = (
 
 /**
  * How a character is shown on the control bar: the resting frame of its walk
- * cycle seen from `se`, which points straight down the screen. Its own sheets,
- * so adding a character to the palette is a line in a list and nothing else.
+ * cycle, seen from `se`.
  */
 export const characterPortrait = (type: CharacterType): Texture => {
   const key = frameName(type, "walk", "se", RESTING_FRAME);
@@ -132,17 +115,12 @@ export type CharacterStep = {
 };
 
 /**
- * DEBUG — one colour per column while the depth order overlay is on (DebugView).
- * A checkerboard over (s, e) rather than the order the pieces come in, so a
- * piece keeps its colour while the character walks and neighbours never match.
+ * DEBUG — one colour per column while the overlay is on, as a checkerboard over
+ * (s, e) so a piece keeps its colour while the character walks.
  */
 const PIECE_TINTS = [0xff6b6b, 0x6bc8ff, 0xffd76b, 0x8cff8c];
 
-/**
- * How much of the sprite's shading survives, the rest a flat floor of colour.
- * At 1 the darkest pixels come out black and hide their column; at 0 the sprite
- * is four flat silhouettes.
- */
+/** How much of the sprite's shading survives, the rest a flat floor of colour */
 const SHADING = 0.55;
 
 /** Rec. 709, so that the sprite's shading survives at the brightness it had */
@@ -150,14 +128,13 @@ const [LUMA_R, LUMA_G, LUMA_B] = [0.2126, 0.7152, 0.0722];
 
 /**
  * The colour of a column as a filter: drop the sprite to its luminance, then
- * paint that luminance back in the column's colour. `mesh.tint` MULTIPLIES, so
- * an all-red character would stay red under all four colours.
+ * paint that luminance back in the column's colour.
  */
 const columnFilter = (tint: number): ColorMatrixFilter => {
   const filter = new ColorMatrixFilter();
   const [r, g, b] = new Color(tint).toArray();
-  // out.channel = channel * (SHADING * luma + (1 - SHADING)); a row's last term
-  // is the constant the shader adds, which is what makes the floor affine
+  // out.channel = channel * (SHADING * luma + (1 - SHADING)), the last term of
+  // a row being the constant the shader adds
   const row = (channel: number) =>
     [
       LUMA_R * SHADING * channel,
@@ -166,7 +143,7 @@ const columnFilter = (tint: number): ColorMatrixFilter => {
       0,
       (1 - SHADING) * channel,
     ] as const;
-  // alpha carried through untouched, so the silhouette is unchanged
+  // alpha untouched, so the silhouette is unchanged
   filter.matrix = [
     ...row(r),
     ...row(g),
@@ -190,8 +167,8 @@ const filterOf = (piece: EntityColumnPiece): ColorMatrixFilter => {
 
 /**
  * One piece of the character's sprite: what it shows over a single column of the
- * map, drawn at that column's depth key. A mesh rather than a sprite because a
- * piece is not a rectangle but a run of pixels per row, one quad each.
+ * map, drawn at that column's depth key. A mesh, since a piece is not a
+ * rectangle but a run of pixels per row, one quad each.
  */
 type CharacterPiece = {
   mesh: Mesh<MeshGeometry>;
@@ -200,12 +177,8 @@ type CharacterPiece = {
 };
 
 /**
- * A character on the map.
- *
- * It stands at fractional coordinates and straddles cells, so no single depth
- * key is right for its whole sprite: it is not a display object itself but owns
- * one mesh per column it stands over, each drawn by the chunk that owns that
- * column. See EntityColumns.
+ * A character on the map. Not a display object itself: it owns one mesh per
+ * column it stands over, each drawn by that column's chunk. See EntityColumns.
  */
 export class Character {
   public readonly type: CharacterType;
@@ -289,11 +262,9 @@ export class Character {
   }
 
   /**
-   * Where the sprite's ground point is, in pixels from its top left.
-   *
-   * A frame carries its own, which is what places art of any size or shape
-   * without a word of configuration — and what pins an animation that travels
-   * inside its own frame back onto the spot the engine puts the character on.
+   * Where the sprite's ground point is, in pixels from its top left. Every
+   * frame carries its own, so an animation that travels inside its frame is
+   * pinned back onto the spot the engine puts the character on.
    */
   private get anchor(): [number, number] {
     const animation = this.playing;
@@ -336,13 +307,10 @@ export class Character {
   }
 
   /**
-   * Pick what to show: which animation the character is in, and which of its
-   * frames.
+   * Pick what to show: which animation, and which of its frames.
    *
-   * Three clocks: an attack and a stand run on the wall clock at the rhythm
-   * their sheet was drawn at, a walk runs on the ground it covers so the feet
-   * never slide, and a hop runs on the physics — each of its four poses held
-   * for as long as the engine is in it.
+   * Three clocks — an attack and a stand run on the wall clock, a walk on the
+   * ground it covers, a hop on the physics.
    */
   public update(step: CharacterStep) {
     const previous = this.walkedFrom;
@@ -398,11 +366,8 @@ export class Character {
 
   /**
    * Doing nothing: the resting frame of the walk cycle, and every IDLE_EVERY
-   * seconds one run of the idle animation to break it.
-   *
-   * The counter only advances while the character is standing there, so walking
-   * off and coming back postpones the next break rather than banking it, and a
-   * character that never stops never plays one.
+   * seconds one run of the idle animation to break it. The counter only
+   * advances while it stands there, so walking off postpones the next break.
    */
   private standStill(seconds: number) {
     const idle = this.sprites.animations.idle;
@@ -428,8 +393,6 @@ export class Character {
 
   /**
    * Leaving the ground, rising, falling, landing — whichever the engine is in.
-   * The sheet's ten frames are really four poses; the rest of the difference
-   * between them was height, and the engine owns that.
    */
   private hopFrame(step: CharacterStep, airborne: boolean) {
     const [takeoff, rising, falling, touchdown] = this.playing.phases ?? [
@@ -441,9 +404,8 @@ export class Character {
   }
 
   /**
-   * Whether the cut is out of date. It depends on where the character stands
-   * and on where its sprite is put, which a change of frame can move on its
-   * own: an attack travels inside its frame, and the anchor travels with it.
+   * Whether the cut is out of date: the position, the sprite's size, and its
+   * anchor, which a change of frame moves on its own.
    */
   public get needsSlicing(): boolean {
     const { s, e, u } = this.globalIsoCoordinates;
@@ -477,12 +439,9 @@ export class Character {
   }
 
   /**
-   * Draw the character as its current pieces, reusing the pooled meshes.
-   *
-   * Each piece asks `hostOf` where its own column is drawn: a character
-   * straddling a chunk boundary has pieces on both sides of it, and each
-   * belongs with the cells it has to sort against. Spare pieces are detached
-   * rather than hidden, so nothing is kept alive by an invisible mesh.
+   * Draw the character as its current pieces, reusing the pooled meshes. Each
+   * asks `hostOf` where its own column is drawn, so a character straddling a
+   * chunk boundary has pieces on both sides of it.
    */
   public render(hostOf: (s: number, e: number) => Container) {
     const slices = this.slices;
@@ -504,9 +463,8 @@ export class Character {
     for (const piece of this.pieces) {
       this.detach(piece);
       const { geometry } = piece.mesh;
-      // the texture is the atlas frame, not ours. The geometry is, and
-      // Mesh.destroy only drops its reference to it: buffers and the GPU
-      // allocations behind them would outlive the mesh.
+      // the texture is the atlas frame, not ours; the geometry is, and
+      // Mesh.destroy only drops its reference to it
       piece.mesh.destroy();
       geometry.destroy();
     }
@@ -516,23 +474,19 @@ export class Character {
 
   private createPiece(): CharacterPiece {
     const geometry = new MeshGeometry({ shrinkBuffersToFit: false });
-    // Left to itself Pixi batches a mesh of at most 100 vertices, and a piece is
-    // one quad per row: 128 for a 32 pixel character. Unbatched, each piece
-    // takes a draw call and splits its chunk's tile batch on its way past.
+    // over 100 vertices Pixi stops batching on its own, and each piece would
+    // take a draw call and split its chunk's tile batch on its way past
     geometry.batchMode = "batch";
     return { mesh: new Mesh({ geometry, texture: this.animationTexture }) };
   }
 
   /**
-   * Fill a mesh with the runs of one piece, one quad per run.
-   *
-   * Positions are pixels from the sprite's top-left, UVs the same points in
-   * [0, 1] over the animation frame — the texture's own matrix places that
-   * frame in the atlas, so a frame change never touches the buffers.
+   * Fill a mesh with the runs of one piece, one quad per run. Positions are
+   * pixels from the sprite's top left, UVs the same points over the animation
+   * frame, so a frame change never touches the buffers.
    *
    * Sized once for the worst case — one run per row — and never resized: Pixi
-   * rebuilds a render group's whole instruction set when a batched mesh's
-   * vertex count changes. Spare quads collapse to a point.
+   * rebuilds a render group when a batched mesh's vertex count changes.
    */
   private fillGeometry(piece: CharacterPiece, cut: EntityColumnPiece) {
     const { geometry } = piece.mesh;
@@ -598,8 +552,7 @@ export class Character {
     if (piece.mesh.filters?.[0] !== filter) {
       piece.mesh.filters = filter ? [filter] : [];
     }
-    // a cut only changes when the character moves, and the buffers are the
-    // costly part of a piece: a still frame refills nothing
+    // the buffers are the costly part: a still frame refills nothing
     if (piece.filledFrom !== cut) {
       this.fillGeometry(piece, cut);
       piece.filledFrom = cut;

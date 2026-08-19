@@ -1,11 +1,8 @@
 /**
- * The first gamepad that is there, read once a frame.
+ * The first gamepad that is there, read once a frame — polled rather than
+ * remembered, since the browser leaves a null in the slot on unplug.
  *
- * Polled rather than remembered from `gamepadconnected`: the browser leaves a
- * null in the slot once a pad is unplugged and fires no event.
- *
- * One reader for the whole app, so the deadzone and the button numbering are
- * decided in one place.
+ * One reader for the whole app: the deadzone and the button numbering live here.
  */
 
 /** A stick at rest does not read zero, and a worn one reads further off still */
@@ -21,10 +18,7 @@ export type GamepadInput = {
   left: Stick;
   /** where it wants to look, in screen directions */
   right: Stick;
-  /**
-   * How hard the triggers are pulled, 0 to 1 each — analog in the standard
-   * mapping, which is what makes them the right thing to zoom with.
-   */
+  /** How hard the triggers are pulled, 0 to 1 each */
   zoomIn: number;
   zoomOut: number;
   jumpHeld: boolean;

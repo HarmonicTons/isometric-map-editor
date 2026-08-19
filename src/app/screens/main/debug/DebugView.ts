@@ -1,10 +1,7 @@
 /**
- * Visual debugging of the depth order, toggled with F10. Two overlays on one
- * switch: the key written on every cell around the character
- * (Map.syncDepthKeys), and a colour plus a key on every piece of its sprite
- * (Character.showPiece). Off outside a browser, so the tests see what ships.
- *
- * On macOS press fn+F10 unless the function keys are set to standard.
+ * Visual debugging of the depth order, toggled with F10 (fn+F10 on macOS). Two
+ * overlays on one switch: DebugOverlay draws the keys, Character tints its
+ * pieces. Always off outside a browser.
  */
 const TOGGLE_KEY = "F10";
 
@@ -14,10 +11,7 @@ export const debugViewEnabled = (): boolean => enabled;
 
 let listening = false;
 
-/**
- * Start listening for the toggle. Browser only, and once per page: a second
- * listener would toggle the flag straight back and make F10 a no-op.
- */
+/** Start listening for the toggle. Browser only, and once per page. */
 export const listenForDebugViewToggle = () => {
   if (listening) return;
   listening = true;

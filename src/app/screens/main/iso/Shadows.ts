@@ -4,9 +4,7 @@ import { Graphics } from "pixi.js";
  * Which pixels of the map a shadow darkens, and how they are painted.
  *
  * Everything here works in the sprite of one cell and answers one question:
- * given a whole pixel, which point of the ground does it stand for? Reading a
- * shadow off the ground keeps it on the game's grid at any zoom and cuts it at
- * the edge of a tile for free.
+ * given a whole pixel, which point of the ground does it stand for?
  */
 
 /** Size of a cell's top face on screen, in pixels */
@@ -17,12 +15,9 @@ const FACE_HEIGHT = 16;
 const SHADOW_ALPHA = 0.5;
 
 /**
- * How far down the boundary between two cells is read, in pixels.
- *
- * Tile art overflows its own faces, so the tile in front repaints a pixel or
- * two of the one behind. Reading the boundary a row lower hands each seam to
- * the cell in front, which covers it with its own art — without this a bright
- * line follows every edge on the map.
+ * How far down the boundary between two cells is read, in pixels. It hands each
+ * seam to the cell in front, which covers it with its own art; without it a
+ * bright line follows every edge on the map.
  */
 const SEAM = 1;
 
@@ -34,10 +29,8 @@ export type ShadowRun = { x: number; y: number; width: number };
 
 /**
  * The point of the ground a pixel of a cell's top face stands for, in cell
- * fractions, or nothing when the pixel belongs to another cell.
- *
- * The inverse of the projection x = 16 (de − ds) + 16, y = 8 (de + ds), and
- * half-open, so every pixel of the map belongs to exactly one cell.
+ * fractions, or nothing when the pixel belongs to another cell. Half-open, so
+ * every pixel of the map belongs to exactly one cell.
  */
 const groundUnderPixel = (
   x: number,
@@ -95,24 +88,15 @@ export const shadowRuns = (
     return offS * offS + offE * offE <= radius * radius;
   });
 
-/**
- * The whole of a cell's top face — what a tile floating over it drops on it.
- *
- * The same set for every cell of the map, since which pixel a face owns depends
- * only on where the pixel sits in the sprite.
- */
+/** The whole of a cell's top face — what a tile floating over it drops on it */
 export const TOP_FACE_RUNS: ShadowRun[] = runsWhere(() => true);
 
-/**
- * How wide the edge lines below are, as a fraction of a cell. A thirty-second
- * gives three pixels a row, which is the 2:1 slope the tile art is drawn on.
- */
+/** How wide the edge lines below are, as a fraction of a cell */
 const EDGE_THICKNESS = 1 / 32;
 
 /**
  * The pixels along a cell's two MIN edges, for drawing a line on the boundary
- * between two cells. The max sides belong to the cell in front (see SEAM), and
- * every boundary is the min side of one cell anyway.
+ * between two cells. The max sides belong to the cell in front (see SEAM).
  */
 export const NORTH_EDGE_RUNS: ShadowRun[] = runsWhere(
   ({ ds }) => ds < EDGE_THICKNESS

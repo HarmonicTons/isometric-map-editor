@@ -1,12 +1,9 @@
 /**
- * The keyboard as a second gamepad, so the character can be played without one.
- *
- * Held keys are remembered and read once a frame rather than acted on as they
- * arrive, which is what makes them a stick: Map needs no second path through
- * the simulation. See Map.sampleInput.
+ * The keyboard as a second gamepad: held keys are remembered and read once a
+ * frame, so Map needs no second path through the simulation.
  *
  * `code` everywhere, not `key`: the physical position, so WASD on QWERTY is
- * ZQSD on AZERTY without a word of configuration.
+ * ZQSD on AZERTY.
  */
 const WALK_KEYS: Record<string, { x: number; y: number }> = {
   KeyW: { x: 0, y: -1 },
@@ -20,10 +17,8 @@ const JUMP_KEY = "Space";
 const ATTACK_KEY = "KeyE";
 
 /**
- * Where the held keys point, as a stick deflection in SCREEN space, so it goes
- * through the same projection as a real stick. A diagonal comes out longer
- * than 1, as it does on a stick pushed into a corner, which walkVelocity
- * clamps rather than rewards.
+ * Where the held keys point, as a stick deflection in SCREEN space. A diagonal
+ * comes out longer than 1, which walkVelocity clamps.
  */
 export const stickFromKeys = (held: Iterable<string>) => {
   let x = 0;

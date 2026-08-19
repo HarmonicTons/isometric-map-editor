@@ -12,26 +12,20 @@
  *   raw-assets/game{m}/characters/<type>/    the atlases AssetPack ships
  *   public/characters/<type>.json            the description, fetched at runtime
  *
- * One description per character, served rather than imported: there are over a
- * thousand of these to be had, and a bundle carrying all of them would be paid
- * for by everyone to play one.
+ * The dump stays out of raw-assets and out of git: it holds 34 animations per
+ * character, under names every character would claim at once. This script is
+ * how you get it back.
  *
- * The dump stays OUT of raw-assets on purpose: it holds 34 animations and two
- * marker images each, and AssetPack would ship all of it — under names like
- * `Walk-Anim.png` that every character would claim at once. It is not committed
- * either: this script is how you get it back.
- *
- * WHAT THE DUMP DECLARES, and why none of it has to be guessed at:
+ * WHAT THE DUMP DECLARES:
  *
  * AnimData.xml gives every animation its FrameWidth, FrameHeight and one
- * Duration per frame, so the grid is the frame count across and whatever the
- * sheet's height leaves down — 8 rows for a directional animation, 1 for the
- * others. Durations are in ticks of a sixtieth of a second.
+ * Duration per frame, in ticks of a sixtieth of a second — so the grid is the
+ * frame count across and 8 rows down for a directional animation, 1 for the
+ * others.
  *
  * `<anim>-Shadow.png` marks, per frame, ONE white pixel: where the feet meet the
  * ground. `<anim>-Offsets.png` marks four — black the middle of the body, green
- * the head, red and blue the hands. Both are what let a frame be placed without
- * knowing anything about the art in it.
+ * the head, red and blue the hands.
  */
 import {
   existsSync,
@@ -59,29 +53,15 @@ const NAME_URL = (dex) =>
   `https://pokeapi.co/api/v2/pokemon-species/${Number(dex)}`;
 
 /**
- * The eight rows of a directional sheet, in the order they are stacked.
- *
- * Read off the sheets rather than off any documentation: in `Attack` the
- * character lunges the way it faces, and the ground marker follows it, so the
- * drift of that marker names the row. Row 0 lunges straight down the screen,
- * row 1 down and right, and so on counter-clockwise.
- *
- * Down the screen is s and e together, down-right is e alone: our axes fall
- * between the sheet's, which is why the four directions we had are its
- * diagonals and the four we gain are its straight ones.
+ * The eight rows of a directional sheet, in the order they are stacked: row 0
+ * faces straight down the screen, each next one 45° counter-clockwise.
  */
 const ROW_DIRECTIONS = ["se", "e", "ne", "n", "nw", "w", "sw", "s"];
 
 /**
- * The animations we take out of the dump, and the marker each is placed by.
- *
- * `ground` follows the white pixel frame by frame, so an animation that travels
- * inside its own frame — the lunge of an attack — is pinned back onto the spot
- * the engine says the character is on.
- *
- * `body` follows the black one instead, which also cancels a rise: the whole
- * arc of `Hop` is drawn into the sheet while its ground marker stays put, and
- * the engine has its own gravity to do that with.
+ * The animations we take out of the dump, and the marker each is placed by:
+ * `ground` pins a frame by the feet, `body` by the middle of the body, which
+ * also cancels the rise a hop sheet draws into itself.
  */
 const WANTED = {
   idle: { source: "Idle", placeBy: "ground" },
@@ -92,9 +72,7 @@ const WANTED = {
 
 /**
  * What the hitbox is measured on: the first frame of the walk cycle, which is
- * the pose the character holds when it is doing nothing. Not the idle sheet —
- * that one is a stretch and a yawn, and its silhouette is bigger than the
- * character ever is standing there.
+ * the pose a character holds when it is doing nothing.
  */
 const MEASURED_ON = "walk";
 const MEASURED_FRAME = 0;
@@ -103,24 +81,17 @@ const CELL_WIDTH = 32;
 const LEVEL_HEIGHT = 8;
 
 /**
- * How much of its own silhouette a character's footprint keeps.
- *
- * The window for threading a gap is (gap - footprint) wide, so a body exactly
- * as wide as a gap can never get through it. A hair narrower turns
- * "impossible" into "hard". Only the footprint: shrinking the height would let
- * characters under ceilings they should not fit beneath.
+ * How much of its own silhouette a character's footprint keeps: the window for
+ * threading a gap is (gap - footprint) wide, so a body exactly as wide as a gap
+ * could never get through one. The height is left alone.
  */
 const FOOTPRINT_MARGIN = 0.99;
 
 // ---------------------------------------------------------------- downloading
 
 /**
- * The files of a zip, by name.
- *
- * Read through the central directory rather than by walking local headers: an
- * entry written by a streaming zipper carries its sizes AFTER its data, and
- * only the directory is guaranteed to have them. Stored and deflated entries
- * are all these dumps use.
+ * The files of a zip, by name. Read through the central directory, which is the
+ * only place an entry's sizes are guaranteed to be. Stored and deflated only.
  */
 const unzip = (buffer) => {
   let end = buffer.length - 22;
@@ -186,11 +157,8 @@ const slug = (name) =>
     .replace(/^-|-$/g, "");
 
 /**
- * What to call the character, from the dex number alone.
- *
- * The dump carries no name — it is filed under a number — so one is asked for
- * separately. `name` on that endpoint is already the English name in the shape
- * a file wants it. Pass a name as a second argument and nothing is asked.
+ * What to call the character, from the dex number alone — the dump is filed
+ * under a number and carries no name. Pass one as a second argument to skip it.
  */
 const nameOf = async (dex) => {
   const answer = await fetch(NAME_URL(dex));
@@ -251,12 +219,9 @@ const WHITE = [255, 255, 255];
 const BLACK = [0, 0, 0];
 
 /**
- * Where the ground under the character is, in each frame of a sheet.
- *
- * Under `body` the offset from the body to the ground is taken from the frame
- * the character is resting in and then held: the sprite follows the body, so
- * whatever the sheet does with height is undone and the engine's own position
- * is the only thing left moving.
+ * Where the ground under the character is, in each frame of a sheet. Under
+ * `body` the offset from the body to the ground is taken from the resting frame
+ * and then held, which undoes whatever the sheet does with height.
  */
 const anchorsOf = (dump, anim, rows, placeBy) => {
   const shadow = PNG.sync.read(
@@ -291,13 +256,9 @@ const anchorsOf = (dump, anim, rows, placeBy) => {
 
 /**
  * The four moments of a hop: leaving the ground, going up, coming down,
- * landing. The engine holds each for as long as its own physics is in it, so a
- * ten frame sheet has to come down to four poses.
- *
- * The apex is where the body anchor is highest; the middle of each half is the
- * pose that half holds, and the sheet's first and last frames are the other
- * two. Deliberately no cleverer: sheets disagree on how many frames they spend
- * crouching and landing, and some spend none.
+ * landing. The apex is where the body anchor is highest, the middle of each
+ * half is the pose that half holds, and the sheet's first and last frames are
+ * the other two.
  */
 const hopPhases = (anim, anchors) => {
   const frames = anim.durations.length;
@@ -341,14 +302,10 @@ const atlasOf = (type, name, anim, rows, image) => {
 /**
  * What the character occupies, read off the silhouette of one resting frame.
  *
- * Everything else in the game is drawn as the projection of a box: a footprint
- * of f cells wide covers 32f pixels, and its topmost point stands 8f + 8h above
- * the middle of its base — the very point the ground marker names. Reading the
- * silhouette back through that is what keeps a character the same size as the
- * scenery it walks on.
- *
- * The frame size cannot be used for this any more: the same character is drawn
- * in 32 by 32 walking and 64 by 64 attacking.
+ * Everything in the game is drawn as the projection of a box: a footprint f
+ * cells wide covers 32f pixels, and its topmost point stands 8f + 8h above the
+ * middle of its base — the point the ground marker names. The frame size is no
+ * use here: the same character is 32×32 walking and 64×64 attacking.
  */
 const hitboxFrom = (sheet, anim, rows, anchor, column) => {
   let minX = Infinity;

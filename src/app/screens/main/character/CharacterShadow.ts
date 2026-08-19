@@ -8,14 +8,8 @@ import {
 import { paintRuns, ShadowRun, shadowRuns } from "../iso/Shadows";
 
 /**
- * The dark disc a character drops on whatever is under it.
- *
- * One of these per character, owned by it and destroyed with it: the pool below
- * is indexed by that character's own ground cells, so sharing one between two
- * of them would mean juggling offsets into it.
- *
- * What it needs of the map it takes as two callbacks, so it knows nothing of
- * chunks or tiles.
+ * The dark disc a character drops on whatever is under it. One per character,
+ * owned by it and destroyed with it; the map comes in as two callbacks.
  */
 export type Ground = {
   /** The highest solid level strictly below `u` in the column, if any */
@@ -30,12 +24,8 @@ export class CharacterShadow {
   private shapes: string[] = [];
 
   /**
-   * The disc it is cast from, in cells.
-   *
-   * INSIDE the footprint, so the shadow stays on cells that can never be drawn
-   * in front of the character — a wider one puts dark pixels on its feet. On
-   * whole pixels, like the sprite, or it shimmers under it: what is rounded is
-   * the projection, then inverted back.
+   * The disc it is cast from, in cells: inside the footprint, and on whole
+   * pixels like the sprite, so it does not shimmer under it.
    */
   private static disc(iso: GlobalIsoCoordinates, hitbox: IsoCoordinates) {
     const across = Math.round(16 * (iso.e - iso.s)) / 16;
@@ -51,11 +41,8 @@ export class CharacterShadow {
 
   /**
    * Lay it on the ground below the character, one piece per ground cell, each
-   * a quarter above the cell it lies on.
-   *
-   * One key for the whole shadow lifts the pieces lying on cells behind — the
-   * ones a character standing on an edge drops into the hole beside it — over
-   * the tile and the character that ought to hide them.
+   * keyed a quarter above the cell it lies on. One key for the whole shadow
+   * would lift the pieces that fell into a hole over the tiles hiding them.
    */
   public sync(
     iso: GlobalIsoCoordinates,
@@ -63,11 +50,8 @@ export class CharacterShadow {
     ground: Ground
   ) {
     const { radius, centre } = CharacterShadow.disc(iso, hitbox);
-    // Over the cells of the HITBOX, not those of the disc: the disc lies
-    // inside the footprint, so nothing is lost, and this is the range that is
-    // certainly inside the map — floor(centre + radius) picks up the cell past
-    // a box standing flush against a boundary. Cells the disc misses drop out
-    // on their own, with no run to paint.
+    // the cells of the HITBOX, which always have a chunk to be drawn in; the
+    // disc lies inside them, and the ones it misses paint no run anyway
     const cells = IsoBox.standingOn(iso, hitbox).cells();
 
     let used = 0;
@@ -77,8 +61,7 @@ export class CharacterShadow {
         if (level === undefined) continue;
         const runs = shadowRuns(cs, ce, centre, radius);
         if (runs.length === 0) continue;
-        // over the cell it lies on and under the character, whose pieces are
-        // keyed a level higher plus a fraction (EntityColumns.subCellKey)
+        // over the cell it lies on, under the character's own pieces
         this.paint(used++, ground.hostOver(cs, ce), runs, {
           at: new GlobalIsoCoordinates(cs, ce, level).toXY(),
           zIndex: paintersOrderKey(cs, ce, level) + 0.25,
@@ -89,11 +72,8 @@ export class CharacterShadow {
   }
 
   /**
-   * Fill one pooled piece with `runs`, and only when they changed.
-   *
-   * The guard is not an optimisation: Pixi rebuilds a whole render group's draw
-   * instructions as soon as one Graphics in it reports a change, so redrawing
-   * an unmoved shadow costs its chunk's entire instruction set every frame.
+   * Fill one pooled piece with `runs`, and only when they changed — Pixi
+   * rebuilds a whole render group as soon as one Graphics in it reports one.
    */
   private paint(
     index: number,
@@ -112,10 +92,7 @@ export class CharacterShadow {
     paintRuns(piece, runs);
   }
 
-  /**
-   * Put away the pieces this frame had no use for. Detached and not merely
-   * cleared: one left behind would keep its chunk from ever being destroyed.
-   */
+  /** Detach the pieces this frame had no use for, so their chunk can go */
   private putAwayFrom(index: number) {
     for (let spare = index; spare < this.pieces.length; spare++) {
       const piece = this.pieces[spare];

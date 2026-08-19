@@ -34,19 +34,15 @@ export class MapChunk extends Container {
   public cells: Record<IsoString, CellContent> = {};
 
   /**
-   * The highest level this chunk has ever held a cell at.
-   *
-   * A high-water mark, never lowered: it only ever bounds a search upward
-   * through a column (Map.isOvershadowed), so an emptied tower costs a few
-   * wasted lookups and never a wrong answer.
+   * The highest level this chunk has ever held a cell at. A high-water mark,
+   * never lowered: it only bounds a search upward (Map.isOvershadowed).
    */
   public highestLevel = -1;
 
   /**
-   * Bumped whenever `cells` changes, so that anything derived from the whole
-   * chunk can tell in one comparison whether it is still current. Only the
-   * debug chunk-boundary overlay reads it (Map.syncChunkBounds), which is why
-   * it is a counter and not an event: it is asked, never announced.
+   * Bumped whenever `cells` changes, so anything derived from the whole chunk
+   * can tell in one comparison whether it is still current. Read by the debug
+   * chunk-boundary overlay.
    */
   public revision = 0;
 
@@ -63,14 +59,11 @@ export class MapChunk extends Container {
     super();
     this.eventMode = "none";
     this.sortableChildren = true;
-    // Pixi rebuilds a render group's draw instructions when its structure
-    // changes. Without a boundary the whole map is one group, so moving the
-    // character one pixel rebuilds every cell of it — 170 000 display objects
-    // on a 128×128×16 map, a 140 → 30 fps drop. A chunk is already atomic in
-    // the draw order, so its own pass costs nothing and contains the rebuild.
+    // a render group boundary, so moving the character rebuilds this chunk's
+    // draw instructions rather than the whole map's
     this.isRenderGroup = true;
-    // Tiles are loaded as bare data: materialization of the shell happens in
-    // the map-wide pass, once every chunk's data is available
+    // tiles are loaded as bare data: the shell is materialized in the map-wide
+    // pass, once every chunk's data is available
     for (const key of Object.keys(chunkTileData) as IsoString[]) {
       const type = chunkTileData[key];
       if (!type) continue;
@@ -151,9 +144,8 @@ export class MapChunk extends Container {
       chunk: this,
       skipFragmentsSetup,
     });
-    // Views are placed in map pixels, never relative to the chunk: a chunk is
-    // a grouping in the draw order, not a coordinate frame, and a character's
-    // pieces are placed on the same footing as the cells they mix with.
+    // in map pixels, never relative to the chunk: a chunk is a grouping in the
+    // draw order, not a coordinate frame
     const xy = globalIso.toXY();
     tile.x = xy.x;
     tile.y = xy.y;
@@ -210,8 +202,7 @@ export class MapChunk extends Container {
     mapObject.y = xy.y + 24;
     mapObject.zIndex = globalIso.paintersOrderKey();
     this.addChild(mapObject);
-    // every level it occupies, so highestLevel is only right once they are
-    // known: a large_pine is eleven cells tall, not one
+    // every level it occupies: a large_pine is eleven cells tall, not one
     for (let i = 0; i < mapObject.objectHeight; i++) {
       const cellIso = new LocalIsoCoordinates(iso.s, iso.e, iso.u + i);
       this.assertInside(cellIso);

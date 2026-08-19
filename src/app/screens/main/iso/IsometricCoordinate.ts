@@ -95,11 +95,7 @@ export class IsoCoordinates {
   }
 }
 
-/**
- * How close to a whole number a box's face has to be to count as sitting on
- * it. Wide enough to swallow the error of adding a few fractions together,
- * far narrower than anything a position can meaningfully express.
- */
+/** How close to a whole number a box's face has to be to count as sitting on it */
 export const EDGE = 1e-9;
 
 /**
@@ -116,10 +112,6 @@ export class IsoBox {
   /**
    * A box of `size` standing on the cell at `iso`: centred on it horizontally,
    * feet on its floor.
-   *
-   * Centred so that an entity narrower than a cell shares the slack between its
-   * two sides, and walking into a wall behaves the same from either direction.
-   * Height is not centred: an entity stands on the cell.
    */
   public static standingOn(iso: IsoCoordinates, size: IsoCoordinates): IsoBox {
     const min = iso.add(
@@ -131,15 +123,9 @@ export class IsoBox {
   /**
    * Range of integer cells the box overlaps on one axis, both bounds included.
    *
-   * Because the box is half-open, a box whose max falls exactly on a cell
-   * boundary does NOT overlap the cell beyond it: this is what lets a character
-   * standing flush against a wall still move along it.
-   *
-   * A bound within EDGE of a whole number counts as being on it. A box is built
-   * by adding fractions, so a face that should land exactly on a boundary lands
-   * a few 1e-16 past it; without this the same entity would occupy a different
-   * number of cells depending on where it stood, changing both its collisions
-   * and the way its sprite is cut.
+   * Half-open, so a box flush against a cell boundary does NOT overlap the cell
+   * beyond it — and a bound within EDGE of a whole number counts as being on
+   * it, since a box is built by adding fractions.
    */
   public cellRange(axis: IsoAxis): [number, number] {
     const min = Math.floor(this.min[axis] + EDGE);
@@ -147,11 +133,7 @@ export class IsoBox {
     return [min, Math.max(min, Math.ceil(this.max[axis] - EDGE) - 1)];
   }
 
-  /**
-   * The whole cells the box covers, as a half-open range [min, max): the
-   * corners of `cellRange` on all three axes at once. Kept here so a box and its
-   * cells can never disagree about the EDGE forgiveness above.
-   */
+  /** The whole cells the box covers, as a half-open range [min, max) */
   public cells(): { min: IsoCoordinates; max: IsoCoordinates } {
     const [minS, maxS] = this.cellRange("s");
     const [minE, maxE] = this.cellRange("e");
@@ -164,20 +146,14 @@ export class IsoBox {
 }
 
 /**
- * What a cell's depth key gains per diagonal (s + e); a level is worth 1.
- *
- * A whole column therefore fits between two diagonals, which is what leaves a
- * free unit between one cell of a column and the next for anything standing
- * across them (EntityColumns.subCellKey), and what lets a MapObject taller than
- * one cell carry the key of its base cell.
+ * What a cell's depth key gains per diagonal (s + e); a level is worth 1, so a
+ * whole column fits between two diagonals.
  */
 const DIAGONAL_WEIGHT = MAP_MAX_HEIGHT;
 
 /**
  * Depth key of a cell: an exact linear extension of "this cell hides that one".
- *
- * @see GlobalIsoCoordinates.paintersOrderKey, the way to call it unless
- * allocating a coordinate would be too costly.
+ * @see GlobalIsoCoordinates.paintersOrderKey
  */
 export const paintersOrderKey = (s: number, e: number, u: number): number =>
   DIAGONAL_WEIGHT * (s + e) + u;
@@ -189,10 +165,8 @@ export class GlobalIsoCoordinates extends IsoCoordinates {
   public readonly type = "global";
 
   /**
-   * Depth key of this cell, for the zIndex of whatever displays it.
-   *
-   * Global only: cells and character pieces meet in the same container, so
-   * every key that meets has to be counted from the same origin.
+   * Depth key of this cell, for the zIndex of whatever displays it. Global
+   * only: everything that meets in a container shares one origin.
    */
   public paintersOrderKey(): number {
     return paintersOrderKey(this.s, this.e, this.u);

@@ -1,14 +1,10 @@
 /**
- * What a character's sprites look like, as data.
+ * What a character's sprites look like, as data. Written by
+ * scripts/import-pokemon-sprites, one file per character under
+ * public/characters, and fetched like a map rather than bundled.
  *
- * Written by scripts/import-pokemon-sprites, one file per character under
- * public/characters, and FETCHED like a map rather than imported: there are a
- * thousand of these to be had and a bundle holding all of them would be paid
- * for by everyone to play one.
- *
- * Hence loading being a step of its own — `loadCharacterSprites` before the map
- * is built, `characterSprites` synchronously ever after, since a Character is
- * created deep inside a constructor and cannot wait for a round trip.
+ * So loading is a step of its own: `loadCharacterSprites` before the map is
+ * built, `characterSprites` synchronously ever after.
  */
 
 import type { CharacterType } from "./Character";
@@ -17,11 +13,7 @@ export type CharacterAnimationName = "idle" | "walk" | "hop" | "attack";
 
 /**
  * The characters the editor can drop on a map, in the order the control bar
- * shows them.
- *
- * Loaded at start-up whatever the map holds, since any of them can be placed on
- * any map at any time — see main.ts. Which is why this is a short list and not
- * everything under public/characters: each one is a fetch nobody asked for.
+ * shows them. All of them are loaded at start-up, whatever the map holds.
  */
 export const PLACEABLE_CHARACTERS = ["0004-charmander"] as CharacterType[];
 

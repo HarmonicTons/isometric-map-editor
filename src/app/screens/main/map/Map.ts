@@ -111,8 +111,7 @@ export class Map extends Container {
     public tileFragmentsTextures: TileFragmentsTextures,
     /**
      * Side of a chunk, in cells. Only tests change it, to put a boundary
-     * everywhere or nowhere: nothing about a character depends on it, since
-     * each of its pieces is drawn by the chunk owning that piece's column.
+     * everywhere or nowhere.
      */
     chunksSize = 8
   ) {
@@ -226,13 +225,9 @@ export class Map extends Container {
   }
 
   /**
-   * Whether a cell blocks movement. The single seam where "solid" is defined:
-   * for now anything in a cell blocks, tiles and objects alike.
-   *
-   * Outside the chunked area everything is solid, so the map is a walled box
-   * and a character always stands over a column with a chunk to draw it (see
-   * chunkOver). The wall is at the edge of the CHUNKS, so there is still room
-   * to fall off a ledge.
+   * Whether a cell blocks movement: for now anything in one does, tiles and
+   * objects alike. Outside the chunked area everything is solid, so the map is
+   * a walled box — at the edge of the CHUNKS, leaving room to fall off a ledge.
    */
   private isSolidAt(iso: GlobalIsoCoordinates): boolean {
     if (!this.getChunkAt(iso)) return true;
@@ -261,12 +256,8 @@ export class Map extends Container {
   }
 
   /**
-   * Whether a cell holds a TILE — the only thing that casts a shade.
-   *
-   * Not `isSolidAt`: a tree blocks movement but darkens nothing. Objects are
-   * left out because nothing refreshes the column under one when it is planted
-   * or felled, so counting them would make the shade depend on the order the
-   * edits happened in.
+   * Whether a cell holds a TILE — the only thing that casts a shade. A tree
+   * blocks movement but darkens nothing.
    */
   public isTileAt(iso: GlobalIsoCoordinates): boolean {
     const cell = this.getCellContentAt(iso);
@@ -274,12 +265,9 @@ export class Map extends Container {
   }
 
   /**
-   * Whether a tile floating in this column darkens the top face of `iso`.
-   *
-   * The light comes straight down, so what casts is any tile in the same column
-   * with at least one empty level in between, at any height at all. The search
-   * stops at the highest cell the chunk has ever held, which keeps this from
-   * walking to MAP_MAX_HEIGHT over every tile of a flat map.
+   * Whether a tile floating in this column darkens the top face of `iso`: the
+   * light comes straight down, so any tile above it with an empty level in
+   * between casts, at any height. Searched up to the chunk's highest cell.
    */
   public isOvershadowed(iso: GlobalIsoCoordinates): boolean {
     // a face with something resting on it is not a face at all
@@ -350,8 +338,8 @@ export class Map extends Container {
 
   private destroyChunkIfEmpty(chunk: MapChunk) {
     if (!chunk.isEmpty) return;
-    // A chunk with no cell left may still draw something it does not own: the
-    // cursor, or a piece of a character standing over one of its columns.
+    // a chunk with no cell left may still draw something it does not own: the
+    // cursor, or a piece of a character standing over one of its columns
     if (chunk.hasViews) return;
     console.debug(
       `Destroying empty chunk at ${chunk.chunkIsoCoordinates.toString()}`
@@ -380,11 +368,8 @@ export class Map extends Container {
   }
 
   /**
-   * Refresh every cell of the column below `iso`.
-   *
-   * What floats over a cell can be at any height (see isOvershadowed), so
-   * putting a tile down changes what is shaded all the way to the floor, far
-   * past any neighbourhood. Only an edit pays for this walk.
+   * Refresh every cell of the column below `iso`: what floats over a cell can
+   * be at any height, so a new tile changes the shade all the way to the floor.
    */
   private refreshColumnBelow(iso: GlobalIsoCoordinates) {
     for (let u = iso.u - 1; u >= 0; u--) {
@@ -578,20 +563,16 @@ export class Map extends Container {
     } else if (action.entityType === "object") {
       this.addMapObjectAt(target, action.type);
     } else {
-      // Nothing to make room for and nothing to refuse: a character is not a
-      // cell. Dropped on the side of a tile it simply falls until it lands.
+      // a character is not a cell: nothing to make room for, and dropped on
+      // the side of a tile it simply falls until it lands
       this.addCharacterAt(target, action.type);
     }
   }
 
   /**
-   * The HIGHEST ground under the cells the character's hitbox covers, or
-   * nothing if there is none within reach.
-   *
-   * The HIGHEST of the hitbox's cells, not the one under its middle and not the
-   * shadow's: a corner holds a character up as surely as its centre does, and
-   * the shadow is a disc inside the square, so it can clear the lip of a cliff
-   * while the character is plainly still standing on it.
+   * The highest ground under the cells the character's hitbox covers, or
+   * nothing within reach — a corner holds a character up as surely as its
+   * centre does.
    */
   private groundUnderCharacter(character: Character): number | undefined {
     const iso = character.globalIsoCoordinates;
@@ -609,16 +590,9 @@ export class Map extends Container {
 
   /**
    * What a camera asked to look at the character should centre on, in map
-   * pixels.
-   *
-   * Where it STANDS, not where it is, so a jump does not drag the camera up and
-   * back down with it — it is the ground going still that makes a jump
-   * readable. Half its height above that ground, at 4 pixels per level, or a
-   * tall character sits in the top half of the screen.
-   *
-   * The level comes out separately because it is the one part of `y` that
-   * JUMPS, and a camera has to decide for itself what to do with it while the
-   * character is off the ground. See Camera.groundToWatch.
+   * pixels: where it STANDS rather than where it is, half its height above that
+   * ground. The level comes out separately, for Camera.groundToWatch to decide
+   * what to do with while the character is in the air.
    */
   public get characterCentre(): CharacterAnchor | undefined {
     const character = this.character;
@@ -638,12 +612,9 @@ export class Map extends Container {
   }
 
   /**
-   * Put a character on the map, MOVING the one already there if there is one.
-   *
-   * One character per map for now, so this is both how the editor places one
-   * and how it moves it. Destroying the old one is what takes its meshes out of
-   * the chunks they were drawn in; left alone they would stay there for ever,
-   * still drawn and never updated again.
+   * Put a character on the map, MOVING the one already there if there is one —
+   * one per map for now. Destroying the old one takes its meshes out of the
+   * chunks they were drawn in.
    */
   public addCharacterAt(globalIso: GlobalIsoCoordinates, type: CharacterType) {
     this.character?.destroy();
@@ -656,16 +627,13 @@ export class Map extends Container {
   }
 
   /**
-   * What the player is asking for this frame, from either device.
-   *
-   * `jump` and `attack` are the press, not the hold: a button held down is one
-   * jump, not one per frame.
+   * What the player is asking for this frame, from either device. `jump` and
+   * `attack` are the press, not the hold.
    */
   private sampleInput() {
     const pad = sampleGamepad();
     const keys = keyboardInput();
-    // added rather than chosen between, so neither device has to be declared
-    // the active one: whichever is at rest contributes nothing
+    // added rather than chosen between: whichever is at rest contributes nothing
     const held = pad.jumpHeld || keys.jumpHeld;
     const jump = held && !this.jumpHeld;
     this.jumpHeld = held;
@@ -712,9 +680,8 @@ export class Map extends Container {
       deltaE
     );
 
-    // Rising and falling are one more sweep, on the u axis. Standing on
-    // something is asking to go down and being refused, which is also what
-    // tells a jump it is allowed.
+    // rising and falling are one more sweep, on u: standing on something is
+    // asking to go down and being refused, which is what allows a jump
     const fallBox = IsoBox.standingOn(walked, character.hitbox);
     const grounded = isGrounded(isSolid, fallBox);
     const jumped = input.jump && grounded;
@@ -731,8 +698,7 @@ export class Map extends Container {
     const after = walked.add(new IsoCoordinates(0, 0, rise));
     character.globalIsoCoordinates = after;
 
-    // What it actually did, not what the stick asked for: a wall it is pressed
-    // against and the ground under its feet both show up here as a zero.
+    // what it actually did, not what the stick asked for
     if (seconds > 0) {
       this.velocity = new IsoCoordinates(
         (after.s - before.s) / seconds,
@@ -741,9 +707,8 @@ export class Map extends Container {
       );
     }
 
-    // Last, so that the frame is picked from where the character ended up and
-    // from what the ground let it do — a jump refused by a ceiling is not a
-    // jump, and the animation has to agree.
+    // last, so the frame is picked from where the character ended up and from
+    // what the ground let it do
     character.update({
       seconds,
       grounded: isGrounded(isSolid, IsoBox.standingOn(after, character.hitbox)),
@@ -753,12 +718,9 @@ export class Map extends Container {
   }
 
   /**
-   * The chunk that draws whatever stands over the column (s, e).
-   *
-   * Each piece of a character covers one column and a column belongs to one
-   * chunk, so a piece has a chunk of its own to be drawn by — see
+   * The chunk that draws whatever stands over the column (s, e) — see
    * EntityColumns. Off the map is an error, not a case: isSolidAt walls the map
-   * at the edge of its chunks, so this is the assertion, not the handling.
+   * at the edge of its chunks.
    */
   public hostOver(s: number, e: number): MapChunk {
     const chunkIso = this.toChunkIso(new GlobalIsoCoordinates(s, e, 0));
@@ -773,10 +735,8 @@ export class Map extends Container {
 
   /**
    * The highest solid cell strictly below the level `u` in the column (s, e),
-   * or nothing within SHADOW_REACH.
-   *
-   * One column, not the whole footprint: the shadow needs the ground under each
-   * cell it covers separately, since two of them can be at different heights.
+   * or nothing within SHADOW_REACH. One column at a time, since a shadow can
+   * straddle cells at different heights.
    */
   public levelUnder(s: number, e: number, u: number): number | undefined {
     const below = Math.floor(u) - 1;

@@ -10,11 +10,8 @@ import type { MapChunk } from "../map/MapChunk";
 import type { Character } from "../character/Character";
 
 /**
- * The two F10 overlays, kept out of Map because neither is part of the game.
- *
- * Both read the map and draw over it, so they take what they need through a
- * narrow view of it rather than importing Map — which would be a cycle, and
- * would also let them reach for more than they should.
+ * The two F10 overlays. They read the map through a narrow view of it rather
+ * than importing Map, which would be a cycle.
  */
 export type DebugSubject = Container & {
   chunks: Record<IsoString, MapChunk>;
@@ -44,18 +41,12 @@ export class DebugOverlay {
   }
 
   /**
-   * DEBUG — a red line along every chunk boundary, laid on the top face of the
-   * tiles that sit on it. Toggled with F10, see DebugView.
+   * A red line along every chunk boundary, laid on the top face of the tiles
+   * that sit on it — a boundary is where a local coordinate is 0, so a tile
+   * draws the NORTH and WEST edges of its own face.
    *
-   * A boundary is exactly where a local coordinate is 0, so a tile knows it
-   * stands on one without looking at a neighbour, and draws the NORTH and WEST
-   * edges of its own top face — the ones it owns (Shadows.NORTH_EDGE_RUNS),
-   * which also means one line per boundary rather than two abutting ones.
-   *
-   * One Graphics per chunk, rebuilt only when the chunk's own cells changed.
-   * All of them in an overlay above the map rather than inside the chunks,
-   * where they would be hidden by the terrain in front of them — for finding a
-   * boundary, showing through is worth more than looking solid.
+   * One Graphics per chunk, rebuilt only when its cells changed, all in an
+   * overlay above the map so the lines show through the terrain in front.
    */
   private syncChunkBounds() {
     if (!debugViewEnabled()) {
@@ -111,10 +102,9 @@ export class DebugOverlay {
   }
 
   /**
-   * DEBUG — writes the depth key on every cell around the character and on
-   * every piece of its sprite, so the draw order can be read off the screen.
-   * Toggled with F10, see DebugView. Only the cells the character can reach are
-   * labelled; a whole map's worth of text would be unreadable.
+   * The depth key written on every cell around the character and on every piece
+   * of its sprite. Only the cells it can reach: a whole map's worth of text
+   * would be unreadable.
    */
   private syncDepthKeys() {
     const character = this.map.character;
@@ -142,8 +132,8 @@ export class DebugOverlay {
         this.depthKeyOverlay!.addChild(
           new Text({
             text: "",
-            // thirteen characters have to fit in a 32 px cell, so the type is
-            // tiny; the resolution is what keeps it readable once zoomed in
+            // thirteen characters in a 32 px cell, so the type is tiny and
+            // the resolution is what keeps it readable once zoomed in
             resolution: 8,
             anchor: 0.5,
             style: {
@@ -196,9 +186,8 @@ export class DebugOverlay {
     const slicing = character.slicing;
     const pieces = slicing?.pieces ?? [];
     pieces.forEach((piece, index) => {
-      // A piece is a run of pixels per row, not a rectangle, so the label goes
-      // at the centroid of the pixels it covers: the centre of the bounding box
-      // of a piece cut along a diagonal falls inside the neighbouring one.
+      // at the centroid of the pixels it covers: the centre of the bounding
+      // box of a piece cut along a diagonal falls inside the neighbouring one
       let covered = 0;
       let x = 0;
       let y = 0;
@@ -207,15 +196,14 @@ export class DebugOverlay {
         x += (run.x + run.width / 2) * run.width;
         y += (run.y + 0.5) * run.width;
       }
-      // Which column the piece stands over — except on the nearest piece, which
-      // comes last, where the character's own position is worth more.
+      // which column the piece stands over, except on the nearest piece, where
+      // the character's own position is worth more
       const where =
         index === pieces.length - 1
           ? `${s.toFixed(1)},${e.toFixed(1)},${u.toFixed(1)}`
           : `${piece.s},${piece.e}`;
       write(
-        // one decimal of the fraction is enough to separate two characters
-        // sharing a column, where a double prints sixteen
+        // one decimal is enough to separate two characters sharing a column
         where,
         piece.zIndex.toFixed(1),
         slicing!.x + x / covered,

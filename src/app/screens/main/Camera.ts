@@ -18,11 +18,7 @@ export const ZOOM_SPEED = 1.5;
 
 /**
  * The zoom after one frame of pulling the triggers, `pull` being how much more
- * the near one is pulled than the far one.
- *
- * Multiplied rather than added to: a tenth per second added would be
- * imperceptible at 8 and violent at 0.5, where a tenth of growth is the same
- * gesture wherever it starts from.
+ * the near one is pulled than the far one. Multiplicative, and clamped.
  */
 export const cameraZoom = (
   zoom: number,
@@ -33,20 +29,16 @@ export const cameraZoom = (
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, wanted));
 };
 
-/**
- * Free, or pinned to the character.
- *
- * The triggers are deliberately not a way out: zooming in on what you are
- * watching is not asking to stop watching it.
- */
+/** Free, or pinned to the character */
 export type CameraMode = "free" | "following";
 
+/** R3 starts following, the next touch of the right stick ends it */
 export const nextCameraMode = (
   mode: CameraMode,
   { recentred, stick }: { recentred: boolean; stick: Stick }
 ): CameraMode => {
-  // the press wins the frame it happens on: what ends the follow is the NEXT
-  // touch of the stick, even if a hand was already resting on it
+  // the press wins the frame it happens on, so a hand already resting on the
+  // stick does not cancel it
   if (recentred) return "following";
   if (stick.x !== 0 || stick.y !== 0) return "free";
   return mode;
@@ -61,12 +53,9 @@ export type GroundState = {
 };
 
 /**
- * The level a following camera should be watching.
- *
- * In the air it keeps the floor it left, so a jump does not move the camera —
- * reading the ground while airborne makes it dive the moment the character
- * clears a cliff. Clamping to the feet is what lets a real fall be followed,
- * at exactly the speed it is falling.
+ * The level a following camera should be watching: the ground it stands on, or
+ * while it is in the air, the floor it left — but never above its own feet, so
+ * a fall is followed and a jump is not.
  */
 export const groundToWatch = (
   lastStoodOn: number | undefined,
@@ -80,14 +69,12 @@ export const RISE_SPEED = 20;
 const SETTLED = 0.002;
 
 /**
- * Move the camera's level towards the ground it should be watching, as a
- * critically damped spring — the closed form of x'' = −2ω x' − ω² x.
+ * Move the camera's level towards the ground it should be watching: glued to it
+ * while the character falls, and easing in and out over a change of level
+ * without ever overshooting it.
  *
- * A spring rather than a fraction of the gap per second because of how the two
- * start: falling, the target slides with the character's feet, but landing on
- * something higher moves it a whole level at once, and an exponential ease is
- * at its fastest the instant that happens. Critically damped so it never
- * overshoots: the camera settling below the floor would be worse than the jolt.
+ * A critically damped spring, in closed form — x'' = −2ω x' − ω² x — so a long
+ * frame moves it exactly as far as the frames it stands in for.
  */
 export const settleLevel = (
   current: number,
@@ -111,11 +98,8 @@ export const settleLevel = (
 export type Pan = { x: number; y: number };
 
 /**
- * How far to move the viewport this frame, and what to carry into the next.
- *
- * The viewport has to land on whole pixels — this is pixel art — while a stick
- * asks for a fraction of one per frame, so what is left over is carried: it is
- * what lets a stick barely off centre move the camera at all.
+ * How far to move the viewport this frame, in whole pixels, and the fraction to
+ * carry into the next — without it a stick barely off centre moves nothing.
  */
 export const cameraPan = (
   carried: Pan,
@@ -125,7 +109,7 @@ export const cameraPan = (
   if (stick.x === 0 && stick.y === 0) {
     return { move: { x: 0, y: 0 }, carried: { x: 0, y: 0 } };
   }
-  // pushed right, the camera goes right, so the map moves left under it
+  // pushed right the camera goes right, so the map moves left under it
   const wanted = {
     x: carried.x - stick.x * CAMERA_SPEED * seconds,
     y: carried.y - stick.y * CAMERA_SPEED * seconds,

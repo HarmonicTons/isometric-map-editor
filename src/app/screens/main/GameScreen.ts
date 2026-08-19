@@ -93,8 +93,6 @@ export class GameScreen extends Container {
       .drag({ mouseButtons: "middle" })
       .pinch()
       .wheel()
-      // the wheel had no bounds either; it just takes so many notches to reach
-      // anywhere absurd that nobody ever did
       .clampZoom({ minScale: MIN_ZOOM, maxScale: MAX_ZOOM });
     this.mapContainer.setZoom(INITIAL_ZOOM);
     const centerX = Math.round(engine().screen.width * 0.5);
@@ -182,9 +180,8 @@ export class GameScreen extends Container {
     });
     this.addChild(this.controlBar);
 
-    // A child of the screen, not of the viewport: that is what keeps it still
-    // while the map pans and zooms under it. Top right, the control bar has
-    // the left edge.
+    // a child of the screen, not of the viewport, so it stays still while the
+    // map pans and zooms under it
     this.debugReadout = new Text({
       text: "",
       style: {
@@ -207,9 +204,8 @@ export class GameScreen extends Container {
   }
 
   /**
-   * Frames per second, averaged over the last window: an instant reading swings
-   * by twenty between two frames. Counted whether or not the overlay is on, so
-   * the number is already right when it appears.
+   * Frames per second, averaged over the last window. Counted whether or not
+   * the overlay is on, so the number is already right when it appears.
    */
   private countFrame(time: Ticker) {
     this.frames++;
@@ -222,8 +218,7 @@ export class GameScreen extends Container {
 
   /**
    * DEBUG — the frame rate, and how fast the character is actually moving in
-   * cells per second. Pinned to the corner rather than to the character so
-   * that it stays readable while it moves. Toggled with F10, see DebugView.
+   * cells per second. Toggled with F10, see DebugView.
    */
   private syncDebugReadout() {
     this.debugReadout.visible = debugViewEnabled();
@@ -231,8 +226,7 @@ export class GameScreen extends Container {
     const lines = [`${Math.round(this.fps)} fps`];
     if (this.map?.character) {
       const { s, e, u } = this.map.characterVelocity;
-      // the ground speed last, on its own: it is the one that should not
-      // change with the direction, and the one that paces the walk cycle
+      // the ground speed last, on its own: it is what paces the walk cycle
       lines.push(
         `s ${s.toFixed(2)}`,
         `e ${e.toFixed(2)}`,
@@ -297,9 +291,7 @@ export class GameScreen extends Container {
     this.cameraMode = nextCameraMode(was, { recentred, stick: pad.right });
     if (recentred) this.mapContainer.setZoom(DEFAULT_ZOOM, true);
 
-    // Zooming is the same in both modes, and about the middle of the screen:
-    // there is no pointer to zoom towards, so whatever is being watched stays
-    // where it is — which is the whole point while following.
+    // zooming is the same in both modes, and about the middle of the screen
     const zoom = cameraZoom(
       this.mapContainer.scale.x,
       pad.zoomIn - pad.zoomOut,
@@ -310,8 +302,7 @@ export class GameScreen extends Container {
     }
 
     if (this.cameraMode === "following") {
-      // R3 puts the camera on the character at once; a step taken while it is
-      // already watching is what gets eased
+      // R3 puts the camera on the character at once, without easing
       if (recentred) {
         this.followLevel = undefined;
         this.followSpeed = 0;
@@ -332,21 +323,15 @@ export class GameScreen extends Container {
   }
 
   /**
-   * Put the character in the middle of the screen.
-   *
-   * Landed on whole SCREEN pixels afterwards. The character stands at
-   * fractional cells, so centring on it exactly would leave the map on a
-   * fraction of a pixel — and with nearest-neighbour scaling that makes some
-   * texels a pixel wider than their neighbours, so the whole map crawls as it
-   * walks. Half a pixel of the character being off centre is invisible; every
-   * tile shimmering is not.
+   * Put the character in the middle of the screen, landing on whole SCREEN
+   * pixels: with nearest-neighbour scaling, a viewport on a fraction of a pixel
+   * makes the whole map shimmer.
    */
   private lookAtCharacter(seconds: number) {
     const centre = this.map?.characterCentre;
     if (!centre) return;
-    // Straight there the first frame, eased from then on. What is eased is the
-    // LEVEL alone: stepping up a cliff moves it a level at once, where walking
-    // slides the rest of the anchor a few pixels a frame and needs no help.
+    // straight there the first frame, eased from then on, and the LEVEL alone:
+    // walking slides the rest of the anchor a few pixels a frame
     if (centre.grounded) this.lastStoodOn = centre.standing;
     const watching = groundToWatch(this.lastStoodOn, centre);
     if (this.followLevel === undefined) {
