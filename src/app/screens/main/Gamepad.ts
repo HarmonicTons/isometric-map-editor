@@ -2,20 +2,13 @@
  * The first gamepad that is there, read once a frame.
  *
  * Polled rather than remembered from `gamepadconnected`: the browser leaves a
- * null in the slot once a pad is unplugged and fires no event, so a remembered
- * index throws on every frame of the ticker afterwards.
+ * null in the slot once a pad is unplugged and fires no event.
  *
- * One reader for the whole app — the left stick walks the character (Map), the
- * right one moves the camera (GameScreen) — so that the deadzone and the button
- * numbering are decided in one place.
+ * One reader for the whole app, so the deadzone and the button numbering are
+ * decided in one place.
  */
 
-/**
- * How far a stick has to be pushed to count as pushed at all.
- *
- * A stick at rest does not read zero, and a worn one reads further off still.
- * Without this the character walks on its own and the camera drifts.
- */
+/** A stick at rest does not read zero, and a worn one reads further off still */
 const DEADZONE = 0.15;
 
 export type Stick = { x: number; y: number };
@@ -29,11 +22,8 @@ export type GamepadInput = {
   /** where it wants to look, in screen directions */
   right: Stick;
   /**
-   * How hard the triggers are pulled, 0 to 1 each.
-   *
-   * Analog in the standard mapping, which is what makes them the right thing to
-   * zoom with: brushed, they nudge the zoom; crushed, they cross its whole
-   * range. A pad whose triggers are switches reports 0 or 1 and still works.
+   * How hard the triggers are pulled, 0 to 1 each — analog in the standard
+   * mapping, which is what makes them the right thing to zoom with.
    */
   zoomIn: number;
   zoomOut: number;

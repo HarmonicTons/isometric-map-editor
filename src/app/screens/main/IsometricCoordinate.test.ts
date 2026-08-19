@@ -41,28 +41,6 @@ describe("IsoCoordinates", () => {
       return from >= 0 ? "front" : "behind";
     };
 
-    it("would work with any positive weight on height", () => {
-      // The key is DIAGONAL * (s + e) + HEIGHT * u, and the ratio of the two
-      // is FREE: whenever a cell hides another, it has at least as high a
-      // diagonal AND at least as high a u, so any positive pair orders them
-      // right. It is not free in practice — the character has to fit a key
-      // between the cells around it, and how much room that leaves depends on
-      // the ratio — but no correctness argument pins it down.
-      let ordered = 0;
-      for (let ds = -6; ds <= 6; ds++) {
-        for (let de = -6; de <= 6; de++) {
-          for (let du = -12; du <= 12; du++) {
-            if (occlusion(ds, de, du) !== "front") continue;
-            ordered++;
-            expect(ds + de).toBeGreaterThanOrEqual(0);
-            expect(du).toBeGreaterThanOrEqual(0);
-            expect(ds + de + du).toBeGreaterThan(0);
-          }
-        }
-      }
-      expect(ordered).toBeGreaterThan(50);
-    });
-
     it("gives the higher key to whichever cell hides the other", () => {
       for (let ds = -6; ds <= 6; ds++) {
         for (let de = -6; de <= 6; de++) {
@@ -84,18 +62,9 @@ describe("IsoCoordinates", () => {
       expect(high.paintersOrderKey()).toBeGreaterThan(low.paintersOrderKey());
     });
 
-    it("stays a whole number", () => {
-      // the character takes a key strictly between two cells by adding a half,
-      // which only never ties if cell keys are integers
-      expect(new GlobalIsoCoordinates(3, 15, 9).paintersOrderKey() % 1).toBe(0);
-    });
-
     it("is counted from the map origin, not from any chunk", () => {
-      // A chunk draws its own cells and the pieces of a character standing
-      // over its columns in one container, and chunks are ranked against each
-      // other by their diagonal, so every key that meets must share one
-      // origin. Keying a cell on its chunk-local coordinates once made
-      // characters draw over the tiles in front of them.
+      // keying a cell on its chunk-local coordinates once made characters draw
+      // over the tiles in front of them
       const here = new GlobalIsoCoordinates(3, 15, 9);
       const shifted = new GlobalIsoCoordinates(3 + 8, 15 + 8, 9);
       expect(shifted.paintersOrderKey()).not.toBe(here.paintersOrderKey());

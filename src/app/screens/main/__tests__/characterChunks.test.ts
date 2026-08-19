@@ -6,16 +6,10 @@ import { GlobalIsoCoordinates } from "../IsometricCoordinate";
 import { MapChunk } from "../MapChunk";
 
 /**
- * A character drawn by the chunks it stands over.
- *
- * Each piece of its sprite covers exactly one column of the map, and a column
- * belongs to exactly one chunk — so every piece has a chunk of its own to be
- * drawn by, where it sorts against that chunk's cells on the same global key.
- * Nothing is merged, nothing is lent.
- *
- * The bookkeeping, not the depth order (characterDrawOrder.test.ts owns that):
- * a piece must be in the right chunk, leave it when the character does, and
- * never conjure a chunk into existence on its way past.
+ * A character drawn by the chunks it stands over — the bookkeeping, not the
+ * depth order (characterDrawOrder.test.ts owns that). A piece must be in the
+ * right chunk, leave it when the character does, and never conjure a chunk into
+ * existence on its way past.
  */
 
 const CHARACTER = "0004-charmander";
@@ -202,7 +196,9 @@ describe("a character drawn by the chunks it stands over", () => {
       );
       map.update(tick);
       // exactly the pieces it is currently cut into, nowhere else
-      expect(characterPieces(map)).toHaveLength(map.character!.pieceCount);
+      expect(characterPieces(map)).toHaveLength(
+        map.character!.slicing!.pieces.length
+      );
     }
     // and the cells are back to exactly what they were, none added or dropped
     map.character!.globalIsoCoordinates = new GlobalIsoCoordinates(0, 7.2, 1);
@@ -252,7 +248,9 @@ describe("a character drawn by the chunks it stands over", () => {
     expect(warn).toHaveBeenCalled();
     // exactly the pieces of the surviving character, nothing orphaned
     map.update(tick);
-    expect(characterPieces(map)).toHaveLength(map.character!.pieceCount);
+    expect(characterPieces(map)).toHaveLength(
+      map.character!.slicing!.pieces.length
+    );
     map.destroy({ children: true });
     warn.mockRestore();
   });

@@ -10,21 +10,17 @@ import {
  * Cutting an entity's sprite by the column of the map each of its pixels stands
  * over, so that its depth order is exact.
  *
- * An entity stands at fractional coordinates and straddles cells. A cell key
- * only orders cells that hide one another, so an entity bridging two unrelated
- * ones inherits an arbitrary rank. One piece per column fixes it.
+ * An entity straddles cells, and a cell key only orders cells that hide one
+ * another — so an entity bridging two unrelated ones inherits an arbitrary
+ * rank. One piece per column fixes it: along the view ray s, e and u grow
+ * together, so anything nearer the camera than a point has at least its
+ * diagonal, and an equal diagonal means the very same column, where collision
+ * keeps every cell clear of the entity's own levels. Any key in floor(u) +
+ * [0, 1) therefore works, and the free unit tells two entities sharing a
+ * column apart (see subCellKey).
  *
- * Why one key per column suffices, in two steps. Along the view ray s, e and u
- * grow together, so a cell nearer the camera than a point p has s' >= floor(ps)
- * and e' >= floor(pe) — never a smaller diagonal, and the 256 (s + e) term
- * sorts by itself. Equal diagonal then means the very same column, where
- * collision keeps everything at u <= floor(u) - 1 or u >= ceil(u + height): any
- * key in floor(u) + [0, 1) works, and the free unit is what tells two entities
- * sharing a column apart (see subCellKey).
- *
- * A piece therefore belongs to a single column, which belongs to a single
- * chunk: Map draws it there, alongside that chunk's own cells and on the same
- * key — see Map.chunkOver.
+ * A piece belongs to one column, which belongs to one chunk: Map draws it
+ * there, alongside that chunk's cells and on the same key — see Map.chunkOver.
  */
 
 /** Everything the cut is decided from. */
@@ -47,12 +43,9 @@ export type EntityShape = {
  * Where an entity's sprite is drawn, and the volume its depth order is decided
  * against.
  *
- * The entity's box is centred in its cell, so the ground it stands on is the
- * middle of that cell's top face — which projects to exactly 16 right and 16
- * below the cell's top left, whatever the size of anything. Putting the
- * sprite's own anchor there is the whole of the placement.
- *
- * Rounded to whole pixels, so "does that cell paint this pixel" stays exact.
+ * The box is centred in its cell, so the ground under it projects to exactly 16
+ * right and 16 below the cell's top left; putting the sprite's own anchor there
+ * is the whole of the placement. Rounded to whole pixels, this being pixel art.
  */
 const placeSprite = ({ iso, hitbox, anchorX, anchorY }: EntityShape) => {
   const xy = iso.toXY();
@@ -82,32 +75,18 @@ export type EntityColumnSlices = {
   pieces: EntityColumnPiece[];
 };
 
-/**
- * How many pieces the cut can produce, from the position alone: the area of the
- * box's cell rectangle, which every piece below is clamped into.
- */
-export const maxPieces = (entity: EntityShape): number => {
-  const cells = IsoBox.standingOn(entity.iso, entity.hitbox).cells();
-  return (cells.max.s - cells.min.s) * (cells.max.e - cells.min.e);
-};
-
 const clamp = (value: number, low: number, high: number) =>
   value < low ? low : value > high ? high : value;
 
 /**
- * Where the entity stands INSIDE the cell its key is counted from, as a fraction
- * of the gap to the next one. This is what tells two entities sharing a column
- * apart; without it they take the same key and sort arbitrarily. It returns 0.5
- * for an entity exactly on the corner it is keyed from.
+ * Where the entity stands INSIDE the cell its key is counted from, as a
+ * fraction of the gap to the next one — what tells two entities sharing a
+ * column apart.
  *
- * What it reads is `paintersOrderKey` itself, at the box's far bottom corner:
- * that functional grows strictly along a view ray, so it is a depth for points
- * and cell keys are its restriction to whole ones. Deliberately NOT clipped to
- * the column, or anything reaching in from behind ties on the column's corner.
- *
- * Not exact — no single number expresses the three-axis separation that decides
- * it — but the error is the height difference, at most one hitbox, against 256
- * per diagonal, so it only bites under a hundredth of a cell of overlap.
+ * It reads `paintersOrderKey` at the box's far bottom corner, which is a depth
+ * for points since the key grows strictly along a view ray. Deliberately NOT
+ * clipped to the column, or anything reaching in from behind ties on its
+ * corner.
  */
 const subCellKey = (
   box: IsoBox,
@@ -115,15 +94,13 @@ const subCellKey = (
   s: number,
   e: number
 ): number => {
-  // In cells of diagonal rather than in key units: same order either way (one
-  // positive factor), but the squash below saturates fast, and fed the raw key
-  // it would spend its whole range on the 1/256 of a cell around zero — correct,
-  // unreadable in the overlay, and resolving as 1/depth².
+  // in cells of diagonal rather than key units: same order, but the squash
+  // below would otherwise spend its whole range on 1/256 of a cell
   const depth =
     paintersOrderKey(box.min.s - s, box.min.e - e, box.min.u - base.u) /
     paintersOrderKey(1, 0, 0);
-  // any strictly increasing map onto (0, 1) does; this is the cheapest one that
-  // needs no bound on how big a hitbox is allowed to be
+  // any strictly increasing map onto (0, 1) does, and this one needs no bound
+  // on how big a hitbox may be
   return 0.5 + depth / (2 * (1 + Math.abs(depth)));
 };
 
@@ -131,16 +108,12 @@ const subCellKey = (
  * Cut an entity's sprite into one piece per column of the map it stands over,
  * each with the key it must be drawn at.
  *
- * A pixel does not contain a column but a ray, which can leave the hitbox in a
- * different column from the one it entered — and (s, e) and (s + 1, e + 1)
- * project onto the same 32 pixel strip, so x alone cannot tell them apart. What
- * is well defined is where that ray leaves the box, nearest the camera.
- *
- * With a = (X - 16) / 16 and b = (Y - 8) / 8 the ray is s = t, e = t + a,
- * u = 2t + a - b, and it leaves at the first of the three far faces — one min,
- * no search. Pixels overhanging the hitbox get a point on that plane outside the
- * box, which the clamp folds onto the nearest column: the partition continues
- * past the silhouette, the only approximation here.
+ * A pixel holds a ray, not a column, and (s, e) and (s + 1, e + 1) project onto
+ * the same 32 pixel strip — so what a pixel means is where its ray LEAVES the
+ * box, nearest the camera. With a = (X - 16) / 16 and b = (Y - 8) / 8 the ray
+ * is s = t, e = t + a, u = 2t + a - b, and it leaves at the first of the three
+ * far faces: one min, no search. Pixels overhanging the hitbox land outside the
+ * box and are clamped onto the nearest column.
  */
 export const sliceEntityByColumn = (
   entity: EntityShape

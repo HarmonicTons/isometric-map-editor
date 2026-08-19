@@ -275,8 +275,10 @@ export class GameScreen extends Container {
 
   public update(time: Ticker) {
     this.countFrame(time);
-    if (!this.paused) this.moveCamera(time);
-    if (!this.paused && this.map) this.map.update(time);
+    if (!this.paused) {
+      this.moveCamera(time);
+      this.map?.update(time);
+    }
     this.syncDebugReadout();
   }
 

@@ -2,13 +2,12 @@
  * What a character's sprites look like, as data.
  *
  * Written by scripts/import-pokemon-sprites, one file per character under
- * public/characters, and FETCHED like a map rather than imported: there are
- * over a thousand of these to be had, each carrying an anchor for every frame
- * of every direction, and a bundle holding all of them would be paid for by
- * everyone to play one.
+ * public/characters, and FETCHED like a map rather than imported: there are a
+ * thousand of these to be had and a bundle holding all of them would be paid
+ * for by everyone to play one.
  *
- * Which is why loading is a step of its own — `loadCharacterSprites` before the
- * map is built, `characterSprites` synchronously ever after. A Character is
+ * Hence loading being a step of its own — `loadCharacterSprites` before the map
+ * is built, `characterSprites` synchronously ever after, since a Character is
  * created deep inside a constructor and cannot wait for a round trip.
  */
 
@@ -29,25 +28,19 @@ export const PLACEABLE_CHARACTERS = ["0004-charmander"] as CharacterType[];
 /**
  * The eight directions, in the order the rows of a sheet are stacked: `se`
  * points straight down the screen and each next one is 45° counter-clockwise.
- *
- * They name grid directions, not screen ones. Our axes lie between the sheet's
- * rows: `e` alone is down and to the right on screen, `se` is straight down.
+ * Grid names, not screen ones — `e` alone is down and to the right.
  */
 export const DIRECTIONS = ["se", "e", "ne", "n", "nw", "w", "sw", "s"] as const;
 
 export type CharacterDirection = (typeof DIRECTIONS)[number];
 
 export type SpriteAnimation = {
-  /** what the frame names carry between the type and the direction */
-  key: string;
-  width: number;
-  height: number;
   frames: number;
   /** how long each frame is held, in ticks of a sixtieth of a second */
   durations: number[];
   /**
    * The pixel of each frame that sits on the ground the character stands on,
-   * indexed `row * frames + frame`. Row is the index in `directions`.
+   * indexed `row * frames + frame`. Row is the index in DIRECTIONS.
    */
   anchors: [number, number][];
   /**
@@ -61,8 +54,6 @@ export type SpriteAnimation = {
 export type CharacterSprites = {
   /** what it occupies, in cells: s, e, u */
   hitbox: [number, number, number];
-  /** rows of the sheets, in order */
-  directions: readonly CharacterDirection[];
   animations: Partial<Record<CharacterAnimationName, SpriteAnimation>>;
 };
 
@@ -83,12 +74,7 @@ export const registerCharacterSprites = (
   loaded.set(type, sprites);
 };
 
-/**
- * Fetch the descriptions of everything a map is about to place.
- *
- * Await this before building the Map — see main.ts. Asking again for one
- * already there costs nothing, so a caller need not work out what it has.
- */
+/** Fetch descriptions. Await this before building the Map — see main.ts. */
 export const loadCharacterSprites = async (types: Iterable<string>) => {
   const wanted = [...new Set(types)].filter((type) => !loaded.has(type));
   await Promise.all(
@@ -125,16 +111,4 @@ export const animationOf = (
   const animation = sprites.animations[wanted];
   if (!animation) throw new Error(`This character has no ${wanted} animation`);
   return animation;
-};
-
-/** Which row of the sheets faces `direction` */
-export const directionRow = (
-  sprites: CharacterSprites,
-  direction: CharacterDirection
-): number => {
-  const row = sprites.directions.indexOf(direction);
-  if (row === -1) {
-    throw new Error(`This character is never drawn facing ${direction}`);
-  }
-  return row;
 };

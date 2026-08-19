@@ -2,18 +2,11 @@
  * The keyboard as a second gamepad, so the character can be played without one.
  *
  * Held keys are remembered and read once a frame rather than acted on as they
- * arrive, which is what makes them a stick: the same `walkVelocity` turns them
- * into a heading, two keys at once give a diagonal for free, and Map needs no
- * second path through the simulation. See Map.sampleInput.
- */
-
-/**
- * `code`, not `key`: the physical position of the key, whatever the layout.
+ * arrive, which is what makes them a stick: Map needs no second path through
+ * the simulation. See Map.sampleInput.
  *
- * The positions are the ones named W A S D on a US keyboard, which are exactly
- * the ZQSD block on an AZERTY one — the same four keys under the same four
- * fingers either way. Reading `key` instead would bind the letters, and the
- * cluster would fall apart on the other layout.
+ * `code` everywhere, not `key`: the physical position, so WASD on QWERTY is
+ * ZQSD on AZERTY without a word of configuration.
  */
 const WALK_KEYS: Record<string, { x: number; y: number }> = {
   KeyW: { x: 0, y: -1 },
@@ -23,23 +16,14 @@ const WALK_KEYS: Record<string, { x: number; y: number }> = {
 };
 
 const JUMP_KEY = "Space";
-
-/**
- * Attack. The position just above D, so it falls under the same hand as the
- * walk block whatever the layout — E on both QWERTY and AZERTY, as it happens.
- */
+/** just above D, so it falls under the same hand as the walk block */
 const ATTACK_KEY = "KeyE";
 
 /**
- * Where the held keys point, as a stick deflection in screen space.
- *
- * Screen space and not grid space, so that it means the same thing as a real
- * stick and goes through the same projection: pushing right walks north-east,
- * which is what right looks like on an isometric map.
- *
- * Opposite keys cancel, and a diagonal comes out longer than 1 — as it does on
- * a stick pushed into a corner, which `walkVelocity` already clamps rather than
- * rewards.
+ * Where the held keys point, as a stick deflection in SCREEN space, so it goes
+ * through the same projection as a real stick. A diagonal comes out longer
+ * than 1, as it does on a stick pushed into a corner, which walkVelocity
+ * clamps rather than rewards.
  */
 export const stickFromKeys = (held: Iterable<string>) => {
   let x = 0;
@@ -57,16 +41,12 @@ const held = new Set<string>();
 
 let listening = false;
 
-/**
- * Start remembering what is held. Browser only, and once per page: a second
- * listener would do no harm, but nothing needs one.
- */
+/** Start remembering what is held. Browser only, and once per page. */
 export const listenForKeyboardInput = () => {
   if (listening) return;
   listening = true;
   window.addEventListener("keydown", (event) => {
-    // Ctrl+S is a save, Cmd+D a bookmark: a shortcut is not a walk, and
-    // swallowing one would be both rude and hard to guess at.
+    // Ctrl+S is a save, Cmd+D a bookmark: a shortcut is not a walk
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (
       !(event.code in WALK_KEYS) &&
@@ -75,14 +55,13 @@ export const listenForKeyboardInput = () => {
     ) {
       return;
     }
-    // only the jump: space scrolls the page. The letters are left alone so
-    // that they still reach anything that ever wants to be typed into.
+    // only the jump: space scrolls the page, the letters harm nothing
     if (event.code === JUMP_KEY) event.preventDefault();
     held.add(event.code);
   });
   window.addEventListener("keyup", (event) => held.delete(event.code));
-  // A key released while the page is not focused fires no keyup, and the
-  // character would keep walking on its own once the window comes back.
+  // a key released while unfocused fires no keyup, and the character would
+  // keep walking on its own once the window comes back
   window.addEventListener("blur", () => held.clear());
 };
 

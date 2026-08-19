@@ -4,22 +4,8 @@
     0.7116,
     1.7813
   ],
-  "shadowSize": 1,
-  "directions": [
-    "se",
-    "e",
-    "ne",
-    "n",
-    "nw",
-    "w",
-    "sw",
-    "s"
-  ],
   "animations": {
     "idle": {
-      "key": "idle",
-      "width": 32,
-      "height": 40,
       "frames": 4,
       "durations": [
         12,
@@ -159,9 +145,6 @@
       ]
     },
     "walk": {
-      "key": "walk",
-      "width": 32,
-      "height": 32,
       "frames": 4,
       "durations": [
         6,
@@ -301,9 +284,6 @@
       ]
     },
     "hop": {
-      "key": "hop",
-      "width": 32,
-      "height": 88,
       "frames": 10,
       "durations": [
         2,
@@ -647,9 +627,6 @@
       ]
     },
     "attack": {
-      "key": "attack",
-      "width": 64,
-      "height": 64,
       "frames": 11,
       "durations": [
         2,

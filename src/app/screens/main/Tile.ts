@@ -27,7 +27,7 @@ export class Tile extends Container {
   public tileFragmentsTextures: TileFragmentsTextures;
   public getTileTypeAt: GetTileTypeAt;
   /** Whether something floating above darkens this tile's top face */
-  public isOvershadowed: (iso: GlobalIsoCoordinates) => boolean;
+  private isOvershadowed: (iso: GlobalIsoCoordinates) => boolean;
   public chunk: MapChunk;
   /** How many of this tile's children are fragments rather than its shade */
   private fragments = 0;

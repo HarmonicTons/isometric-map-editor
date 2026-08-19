@@ -178,11 +178,8 @@ describe("character draw order", () => {
       };
     };
 
-    // The first four are the worst positions there are: drawing the whole
-    // character in the chunk it stands in, instead of each piece in its own
-    // column's, puts 109, 97, 95 and 93 pixels of them in the wrong order.
-    // Over a sweep of the whole corner it gets 267 positions out of 676
-    // wrong.
+    // the first four are the worst positions there are: drawing the whole
+    // character in one chunk gets about a hundred pixels wrong at each
     for (const [s, e] of [
       [7.9, 7],
       [7.9, 9.5],
@@ -194,8 +191,8 @@ describe("character draw order", () => {
       [5.2, 7.8],
     ]) {
       const map = cluttered(s, e);
-      const chunked = composeMapImage(map, undefined, 8);
-      const whole = composeMapImage(map, undefined, 1024);
+      const chunked = composeMapImage(map, 8);
+      const whole = composeMapImage(map, 1024);
       expect({
         at: `${s},${e}`,
         wrong: changedPixels(chunked, whole).length,

@@ -79,15 +79,6 @@ export class IsoCoordinates {
     return new Ctor(this.s + offset.s, this.e + offset.e, this.u + offset.u);
   }
 
-  public multiply(factor: number): this {
-    const Ctor = this.constructor as new (
-      s: number,
-      e: number,
-      u: number
-    ) => this;
-    return new Ctor(this.s * factor, this.e * factor, this.u * factor);
-  }
-
   public move(direction: IsoDirection): this {
     return this.add(IsoCoordinates.directionsOffsets[direction]);
   }
@@ -173,23 +164,14 @@ export class IsoBox {
 }
 
 /**
- * What a cell's depth key gains per diagonal (s + e) and per level (u).
+ * What a cell's depth key gains per diagonal (s + e); a level is worth 1.
  *
- * The ratio is free for correctness: whenever a cell hides another it has at
- * least as high a diagonal AND as high a u, so every positive pair is an exact
- * painter's order (IsometricCoordinate.test.ts enumerates it).
- *
- * What it decides is the room left BETWEEN two cells, which anything standing
- * across them needs: height weighted as low as it can be leaves a whole unit
- * between one cell of a column and the next (EntityColumns.subCellKey). Do not
- * tune it — a MapObject taller than one cell carries the key of its base cell
- * (MapChunk.createMapObject) and only survives that because a whole column fits
- * between two diagonals here.
- *
- * Whole numbers, so that a fractional key inserted between two cells never ties.
+ * A whole column therefore fits between two diagonals, which is what leaves a
+ * free unit between one cell of a column and the next for anything standing
+ * across them (EntityColumns.subCellKey), and what lets a MapObject taller than
+ * one cell carry the key of its base cell.
  */
 const DIAGONAL_WEIGHT = MAP_MAX_HEIGHT;
-const HEIGHT_WEIGHT = 1;
 
 /**
  * Depth key of a cell: an exact linear extension of "this cell hides that one".
@@ -198,7 +180,7 @@ const HEIGHT_WEIGHT = 1;
  * allocating a coordinate would be too costly.
  */
 export const paintersOrderKey = (s: number, e: number, u: number): number =>
-  DIAGONAL_WEIGHT * (s + e) + HEIGHT_WEIGHT * u;
+  DIAGONAL_WEIGHT * (s + e) + u;
 
 /**
  * Global map isometric coordinates.
@@ -209,10 +191,8 @@ export class GlobalIsoCoordinates extends IsoCoordinates {
   /**
    * Depth key of this cell, for the zIndex of whatever displays it.
    *
-   * Defined on global coordinates only: a chunk draws its own cells and the
-   * pieces of any character standing over its columns in one container, and
-   * the chunks are ranked against each other by their own diagonal, so every
-   * key that meets has to be counted from the same origin.
+   * Global only: cells and character pieces meet in the same container, so
+   * every key that meets has to be counted from the same origin.
    */
   public paintersOrderKey(): number {
     return paintersOrderKey(this.s, this.e, this.u);

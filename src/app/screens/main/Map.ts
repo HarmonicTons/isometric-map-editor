@@ -67,14 +67,6 @@ const shellTilesRelativeCoordinates = [
   new IsoCoordinates(1, 1, 1),
 ];
 
-/**
- * Character walking speed, in cells per second.
- *
- * Taken from Character rather than set here: the walk sheets are drawn at a
- * rhythm, and the cadence only comes out right if the character walks at the
- * speed those durations assume.
- */
-const CHARACTER_SPEED = NOMINAL_WALK_SPEED;
 /** Fall acceleration, in cells per second squared */
 const GRAVITY = 40;
 /**
@@ -91,15 +83,9 @@ const GROUND_PROBE = 1e-6;
 /**
  * How fast a body `height` cells tall leaves the ground, in cells per second.
  *
- * A character jumps its own height: Bulbasaur clears a cell and a half,
- * Rayquaza five. Which is the same jump seen from inside — the world a
- * character steps over is measured in its own size — and it is the one number
- * that needs no tuning, since a body already has a height.
- *
- * A jump reaches v² / 2g, so the speed is the square root of the height rather
- * than a multiple of it. The floor is there so that whatever gets imported can
- * always climb the one-cell steps the scenery is built out of; nothing
- * imported so far comes close to it, the shortest being Bulbasaur at 1.53.
+ * A character jumps its own height, which needs no tuning since a body already
+ * has one. A jump reaches v² / 2g, hence the square root; the floor keeps
+ * anything imported able to climb the one-cell steps scenery is built from.
  */
 export const jumpSpeedFor = (height: number): number =>
   Math.sqrt(2 * GRAVITY * Math.max(1, height));
@@ -131,14 +117,10 @@ export const fallVelocity = (
 /**
  * Where the stick asks the character to walk, in cells per second.
  *
- * The stick points on the screen; the character walks in the grid. Undoing the
- * projection — x = 16(e − s), y = 8(e + s) — makes a screen direction (x, y)
- * into (y/8 − x/16) along s and (y/8 + x/16) along e.
- *
- * Normalising THAT is what keeps the speed constant in cells. Normalising the
- * screen direction keeps it constant in pixels instead, and since the
- * projection squashes y by two, walking up the screen would cover twice the
- * ground of walking across it.
+ * The stick points on the screen, the character walks in the grid, so this
+ * undoes the projection x = 16(e − s), y = 8(e + s). Normalising in the GRID is
+ * what keeps the speed constant in cells: normalised on screen, walking up it
+ * would cover twice the ground of walking across it.
  */
 export const walkVelocity = (
   leftStickX: number,
@@ -150,7 +132,7 @@ export const walkVelocity = (
   if (length === 0) return { s: 0, e: 0 };
   // a stick pushed into a corner is longer than one pushed straight
   const push = Math.min(1, Math.hypot(leftStickX, leftStickY));
-  const pace = (push * CHARACTER_SPEED) / length;
+  const pace = (push * NOMINAL_WALK_SPEED) / length;
   return { s: towardS * pace, e: towardE * pace };
 };
 
@@ -163,14 +145,11 @@ const OVERHANG_GAP = 2;
 /**
  * The map, as a collection of chunks.
  *
- * Chunks are vertical columns (chunksSize × chunksSize × MAP_MAX_HEIGHT):
- * there is no vertical chunk boundary, so a map object always lives in a
- * single chunk, whole sprite included.
+ * Chunks are vertical columns (chunksSize × chunksSize × MAP_MAX_HEIGHT), so
+ * there is no vertical boundary and anything tall lives in a single chunk.
  *
- * Map is the single authority on global coordinates: every operation that can
- * cross a chunk boundary (lookups, edits, neighborhood invalidation) lives
- * here and is routed to the owning chunk in local coordinates. Chunks never
- * know about their neighbors.
+ * Map is the single authority on global coordinates: everything that can cross
+ * a chunk boundary lives here and is routed to the owning chunk in local ones.
  */
 export class Map extends Container {
   public chunks: Record<IsoString, MapChunk> = {};
@@ -341,12 +320,10 @@ export class Map extends Container {
    * Whether a cell blocks movement. The single seam where "solid" is defined:
    * for now anything in a cell blocks, tiles and objects alike.
    *
-   * Outside the chunked area everything is solid, so the map is a walled box.
-   * That is what keeps a character over columns that have a chunk to draw it —
-   * see chunkOver — rather than making walking off the edge a case to handle
-   * everywhere. A chunk exists as soon as a single cell of it does, so the wall
-   * stands at the edge of the chunks and not at the edge of the terrain: there
-   * is room to fall off a ledge, none to leave the map.
+   * Outside the chunked area everything is solid, so the map is a walled box
+   * and a character always stands over a column with a chunk to draw it (see
+   * chunkOver). The wall is at the edge of the CHUNKS, so there is still room
+   * to fall off a ledge.
    */
   private isSolidAt(iso: GlobalIsoCoordinates): boolean {
     if (!this.getChunkAt(iso)) return true;
@@ -377,15 +354,10 @@ export class Map extends Container {
   /**
    * Whether a cell holds a TILE — the only thing that casts a shade.
    *
-   * Deliberately not `isSolidAt`, which also counts map objects: a tree blocks
-   * movement but darkens nothing. Objects are left out because nothing
-   * refreshes the column under one when it appears or goes away —
-   * `addMapObjectAt` and the object branch of `removeEntityAt` leave the
-   * neighbourhood alone, and the constructor loads objects after the map-wide
-   * shading pass. Counting them here would make the shade depend on the order
-   * the edits happened in: a tree planted over a clearing would cast nothing
-   * until something else touched that column, and a felled one would leave its
-   * shade behind.
+   * Not `isSolidAt`: a tree blocks movement but darkens nothing. Objects are
+   * left out because nothing refreshes the column under one when it is planted
+   * or felled, so counting them would make the shade depend on the order the
+   * edits happened in.
    */
   private isTileAt(iso: GlobalIsoCoordinates): boolean {
     const cell = this.getCellContentAt(iso);
@@ -743,16 +715,11 @@ export class Map extends Container {
    * Where a hitbox standing at `from` ends up after asking to move by
    * (deltaS, deltaE), stopped by whatever is in the way and sliding along it.
    *
-   * One axis at a time, the second swept from where the first left the box.
-   * Sweeping both against the SAME starting box lets a diagonal step walk
-   * through a solid corner: each sweep only scans the cells the box already
-   * spans on the other axis, so neither ever sees the cell diagonally ahead,
-   * and a 1×1 pillar approached corner-on is simply passable. Advancing between
-   * the two is what brings that cell into range — whichever axis crosses the
-   * boundary last is swept against a box that already spans the other one.
-   *
-   * The larger component goes first, so the outcome does not depend on which
-   * axis happens to be called s.
+   * One axis at a time, the second swept from where the FIRST left the box:
+   * against the same starting box neither sweep ever sees the cell diagonally
+   * ahead, and a 1×1 pillar approached corner-on would be passable. The larger
+   * component goes first, so the outcome does not depend on which axis happens
+   * to be called s.
    */
   private slideAlong(
     from: GlobalIsoCoordinates,
@@ -797,14 +764,10 @@ export class Map extends Container {
    * The HIGHEST ground under the cells the character's hitbox covers, or
    * nothing if there is none within reach.
    *
-   * The cells of the HITBOX, not of the shadow: the shadow is a disc drawn
-   * INSIDE that square, so a character can be standing squarely on the lip of a
-   * cliff while its disc has already cleared the edge entirely. A camera going
-   * by the shadow would then sit at the bottom of the cliff while the character
-   * is plainly on top of it.
-   *
-   * The highest of them and not the one under its middle, for the same reason:
-   * a corner holds a character up as surely as its centre does.
+   * The HIGHEST of the hitbox's cells, not the one under its middle and not the
+   * shadow's: a corner holds a character up as surely as its centre does, and
+   * the shadow is a disc inside the square, so it can clear the lip of a cliff
+   * while the character is plainly still standing on it.
    */
   private groundUnderCharacter(character: Character): number | undefined {
     const iso = character.globalIsoCoordinates;
@@ -824,19 +787,14 @@ export class Map extends Container {
    * What a camera asked to look at the character should centre on, in map
    * pixels.
    *
-   * Where it STANDS, not where it is: the level comes from the ground under it
-   * rather than from the character itself, so that a jump does not drag the
-   * camera up and back down with it. Everything else about a jump is visible
-   * anyway — it is the ground going still that makes it readable.
+   * Where it STANDS, not where it is, so a jump does not drag the camera up and
+   * back down with it — it is the ground going still that makes a jump
+   * readable. Half its height above that ground, at 4 pixels per level, or a
+   * tall character sits in the top half of the screen.
    *
-   * Half its height above that ground, at 4 pixels per level, the projection
-   * being 8 to a level: on its feet, a tall character would sit in the top half
-   * of the screen, and the taller it is the worse.
-   *
-   * The height comes out separately because it is the one part of `y` that
-   * JUMPS — walking slides the rest a few pixels a frame — and because a camera
-   * has to decide for itself what to do with it while the character is off the
-   * ground. See Camera.groundToWatch.
+   * The level comes out separately because it is the one part of `y` that
+   * JUMPS, and a camera has to decide for itself what to do with it while the
+   * character is off the ground. See Camera.groundToWatch.
    */
   public get characterCentre(): CharacterAnchor | undefined {
     const character = this.character;
@@ -882,10 +840,8 @@ export class Map extends Container {
   private sampleInput() {
     const pad = sampleGamepad();
     const keys = keyboardInput();
-    // Added rather than chosen between, so that neither device has to be
-    // declared the active one: whichever is at rest contributes nothing, and
-    // holding both only ever asks for a longer deflection, which walkVelocity
-    // clamps the same way it clamps a stick pushed into a corner.
+    // added rather than chosen between, so neither device has to be declared
+    // the active one: whichever is at rest contributes nothing
     const held = pad.jumpHeld || keys.jumpHeld;
     const jump = held && !this.jumpHeld;
     this.jumpHeld = held;
@@ -978,16 +934,10 @@ export class Map extends Container {
   /**
    * The chunk that draws whatever stands over the column (s, e).
    *
-   * A character straddles cells but each of its pieces covers exactly one
-   * column, and a column belongs to exactly one chunk — chunks have no u
-   * dimension. So a piece has a chunk of its own to be drawn by, where it
-   * sorts against that chunk's cells on the same global depth key, and the
-   * chunks themselves keep the diagonal order that is already right for the
-   * cells of that column (see createChunk). Nothing has to be merged.
-   *
-   * Out of the map is an error, not a case: there is nowhere to draw a column
-   * no chunk covers, and nothing should ever be over one — isSolidAt walls the
-   * map at the edge of its chunks. This is the assertion, not the handling.
+   * Each piece of a character covers one column and a column belongs to one
+   * chunk, so a piece has a chunk of its own to be drawn by — see
+   * EntityColumns. Off the map is an error, not a case: isSolidAt walls the map
+   * at the edge of its chunks, so this is the assertion, not the handling.
    */
   private chunkOver(s: number, e: number): MapChunk {
     const chunkIso = this.toChunkIso(new GlobalIsoCoordinates(s, e, 0));
@@ -1020,26 +970,12 @@ export class Map extends Container {
   }
 
   /**
-   * Keep the character's shadow on the ground below it.
-   *
-   * Painted one ground cell at a time, each piece a quarter above the cell it
-   * lies on. One key for the whole shadow does not work: it lifts the pieces
-   * lying on cells behind — the ones a character standing on an edge drops into
-   * the hole beside it — over the tile and the character that ought to hide
-   * them. The seams between pieces are closed by the SEAM bias instead.
-   */
-  /**
    * The disc the shadow is cast from, in cells.
    *
-   * INSIDE the footprint: it keeps the shadow within the cells the hitbox
-   * covers, which can never be in front of the character. A wider one reaches
-   * the cell in front, drawn after the character, and dark pixels land on its
-   * feet.
-   *
-   * On whole pixels, like the sprite (EntityColumns.placeSprite rounds too), or
-   * it shimmers under it and is rasterized again every frame. What is rounded
-   * is the projection — a pixel per 1/16 of a cell of (e − s), per 1/8 of
-   * (e + s) — then inverted back.
+   * INSIDE the footprint, so the shadow stays on cells that can never be drawn
+   * in front of the character — a wider one puts dark pixels on its feet. On
+   * whole pixels, like the sprite, or it shimmers under it: what is rounded is
+   * the projection, then inverted back.
    */
   private shadowDisc(character: Character) {
     const iso = character.globalIsoCoordinates;
@@ -1054,6 +990,14 @@ export class Map extends Container {
     };
   }
 
+  /**
+   * Keep the character's shadow on the ground below it, one piece per ground
+   * cell, each a quarter above the cell it lies on.
+   *
+   * One key for the whole shadow lifts the pieces lying on cells behind — the
+   * ones a character standing on an edge drops into the hole beside it — over
+   * the tile and the character that ought to hide them.
+   */
   private syncShadow(character: Character) {
     const iso = character.globalIsoCoordinates;
     const { radius, centre } = this.shadowDisc(character);
@@ -1088,11 +1032,9 @@ export class Map extends Container {
   /**
    * Fill one pooled piece of shadow with `runs`, and only when they changed.
    *
-   * The guard is not an optimisation: Pixi rebuilds the draw instructions of a
-   * whole render group as soon as one Graphics in it reports a change, and
-   * GraphicsPipe.validateRenderable reports one for anything batchable without
-   * looking at what changed. Redrawing an unmoved shadow would cost its chunk's
-   * entire instruction set, every frame, standing still included.
+   * The guard is not an optimisation: Pixi rebuilds a whole render group's draw
+   * instructions as soon as one Graphics in it reports a change, so redrawing
+   * an unmoved shadow costs its chunk's entire instruction set every frame.
    */
   private paintShadow(
     index: number,
@@ -1114,12 +1056,8 @@ export class Map extends Container {
   }
 
   /**
-   * Put away the pieces this frame had no use for.
-   *
-   * Detached and not merely cleared: a piece left in the last chunk it was
-   * drawn in would keep that chunk from ever being destroyed once emptied, and
-   * a chunk holding an invisible Graphics is exactly the kind of thing that is
-   * never noticed until it is a bug.
+   * Put away the pieces this frame had no use for. Detached and not merely
+   * cleared: one left behind would keep its chunk from ever being destroyed.
    */
   private clearShadowPiecesFrom(index: number) {
     for (let spare = index; spare < this.shadowPieces.length; spare++) {
@@ -1131,12 +1069,7 @@ export class Map extends Container {
     }
   }
 
-  /**
-   * A character straddles cells, so it cannot be a single sprite with a single
-   * depth key: it is cut into one piece per column of the map it stands over,
-   * each drawn at that column's key, by the chunk that owns that column — where
-   * it sorts against the cells on the very same key. See chunkOver.
-   */
+  /** Cut the character up and hand each piece to its own column's chunk. */
   private syncView() {
     const character = this.character;
     if (!character) {
@@ -1159,18 +1092,12 @@ export class Map extends Container {
 
   /**
    * DEBUG — a red line along every chunk boundary, laid on the top face of the
-   * tiles that sit on it, so the chunking can be read off the terrain it
-   * follows. Toggled with F10, see DebugView.
+   * tiles that sit on it. Toggled with F10, see DebugView.
    *
    * A boundary is exactly where a local coordinate is 0, so a tile knows it
-   * stands on one without looking at a single neighbour, and the line it draws
-   * is the NORTH and WEST edges of its own top face. Those are the edges a cell
-   * owns — see Shadows.NORTH_EDGE_RUNS for why the other two are not usable —
-   * and drawing only the min sides also means one line per boundary rather than
-   * two abutting ones.
-   *
-   * Every boundary is drawn, always: chunks are never merged, so what the
-   * overlay shows is what the draw order actually does.
+   * stands on one without looking at a neighbour, and draws the NORTH and WEST
+   * edges of its own top face — the ones it owns (Shadows.NORTH_EDGE_RUNS),
+   * which also means one line per boundary rather than two abutting ones.
    *
    * One Graphics per chunk, rebuilt only when the chunk's own cells changed.
    * All of them in an overlay above the map rather than inside the chunks,

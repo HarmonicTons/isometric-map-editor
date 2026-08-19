@@ -27,11 +27,8 @@ export type CellContent = TileType | Tile | MapObject;
  * Anything that may cross a chunk boundary must go through Map
  *
  * It is also the container everything standing over its columns is drawn in —
- * its own cells, and the pieces a character straddling them is cut into. All
- * of them are sorted by the same global depth key, so a chunk is atomic in the
- * draw order without ever being merged with a neighbour: a character piece
- * covers exactly one column, and a column belongs to exactly one chunk. See
- * Map.chunkOver.
+ * its own cells, and the pieces of a character straddling them — all sorted by
+ * the same global depth key. See EntityColumns.
  */
 export class MapChunk extends Container {
   public cells: Record<IsoString, CellContent> = {};

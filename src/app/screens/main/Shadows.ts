@@ -17,17 +17,12 @@ const FACE_HEIGHT = 16;
 const SHADOW_ALPHA = 0.5;
 
 /**
- * How far down the boundaries between cells are read, in pixels, when deciding
- * which cell owns a pixel of shadow.
+ * How far down the boundary between two cells is read, in pixels.
  *
- * Tile art overflows its own faces — a grass top face is fatter than its
- * rhombus — so the tile in front repaints a pixel or two of the one behind,
- * which is what makes them interlock. A shadow laid down right after its own
- * tile loses that pixel, and a bright line follows every edge on the map.
- *
- * Reading the boundary one row lower shifts the whole partition up by a pixel.
- * Still a partition, but the strip along each seam now belongs to the cell in
- * front, which is drawn last and covers it with its own art.
+ * Tile art overflows its own faces, so the tile in front repaints a pixel or
+ * two of the one behind. Reading the boundary a row lower hands each seam to
+ * the cell in front, which covers it with its own art — without this a bright
+ * line follows every edge on the map.
  */
 const SEAM = 1;
 
@@ -41,13 +36,8 @@ export type ShadowRun = { x: number; y: number; width: number };
  * The point of the ground a pixel of a cell's top face stands for, in cell
  * fractions, or nothing when the pixel belongs to another cell.
  *
- * The projection makes the face an affine map from whole pixels to the cell —
- * x = 16 (de − ds) + 16 and y = 8 (de + ds) — and this is its inverse. Top face
- * only: the other two visible faces are vertical.
- *
- * The test is half-open, so every pixel of the map belongs to exactly one cell.
- * Which cell owns a pixel is read SEAM rows below it; where the ground it stands
- * for is, at the pixel itself.
+ * The inverse of the projection x = 16 (de − ds) + 16, y = 8 (de + ds), and
+ * half-open, so every pixel of the map belongs to exactly one cell.
  */
 const groundUnderPixel = (
   x: number,
@@ -120,17 +110,9 @@ export const TOP_FACE_RUNS: ShadowRun[] = runsWhere(() => true);
 const EDGE_THICKNESS = 1 / 32;
 
 /**
- * The pixels along the two edges of a cell's top face that the cell OWNS, for
- * drawing a line on the boundary between two cells.
- *
- * Only the min sides. A cell does not own the strip along its max s and max e
- * edges: the SEAM bias above hands those to the cell in front, which repaints
- * them with its own art, so a line drawn there would be eaten by its neighbour.
- * The measured limit is ds, de <= 0.92, nowhere near 1.
- *
- * That costs nothing, because the same boundary is the max side of one cell and
- * the min side of the next: whatever wants a line on the edge between two cells
- * draws it from the far one.
+ * The pixels along a cell's two MIN edges, for drawing a line on the boundary
+ * between two cells. The max sides belong to the cell in front (see SEAM), and
+ * every boundary is the min side of one cell anyway.
  */
 export const NORTH_EDGE_RUNS: ShadowRun[] = runsWhere(
   ({ ds }) => ds < EDGE_THICKNESS

@@ -272,12 +272,10 @@ export const buildHeadlessMap = (
 export const composeMapImage = (
   mapData: MapData,
   /** test hook: mutate the built map before it is rasterized */
-  mangle?: (map: IsometricMap) => void,
   chunksSize?: number
 ): PNG => {
   const { sheetBySource } = loadAssets();
   const map = buildHeadlessMap(mapData, chunksSize);
-  mangle?.(map);
   const blits: Blit[] = [];
   collectBlits(map, 0, 0, sheetBySource, blits);
   map.destroy({ children: true });

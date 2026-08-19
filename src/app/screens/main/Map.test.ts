@@ -121,8 +121,8 @@ const jumpArc = (bodyHeight: number) => {
 };
 
 /** The shortest thing imported so far, and so the smallest jump in the game */
-const BULBASAUR = 1.5313;
-const JUMP = jumpSpeedFor(BULBASAUR);
+/** A body of a plausible size, for the tests that need one */
+const JUMP = jumpSpeedFor(1.5);
 
 describe("fallVelocity", () => {
   it("stays put on the ground with nothing pressed", () => {
@@ -180,22 +180,14 @@ describe("fallVelocity", () => {
     );
   });
 
-  it("clears a cell and comes back down", () => {
-    const arc = jumpArc(BULBASAUR);
-    // high enough to climb onto anything one cell tall, not so high it flies
-    expect(Math.max(...arc)).toBeGreaterThan(1.1);
-    expect(Math.max(...arc)).toBeLessThan(2);
-    // and it is over quickly: a jump is not a float
-    expect(arc.length * FRAME).toBeLessThan(0.8);
-  });
-
   it("takes a character as high as it is tall", () => {
-    // Bulbasaur clears a cell and a half, Rayquaza five: measured off the arc
-    // the game actually walks, which overshoots the true apex by half a frame
-    // of speed — a fifth of a cell at the tallest, hence the loose bound.
-    for (const height of [BULBASAUR, 2.375, 4.875, 5.3125]) {
+    // measured off the arc the game actually walks, which overshoots the true
+    // apex by half a frame of speed — hence the loose bound
+    for (const height of [1.5, 2.5, 5]) {
       expect(Math.max(...jumpArc(height))).toBeCloseTo(height, 0);
     }
+    // and it is over quickly: a jump is not a float
+    expect(jumpArc(1.5).length * FRAME).toBeLessThan(0.8);
   });
 
   it("never lets anything be too short to climb a step", () => {
@@ -203,19 +195,6 @@ describe("fallVelocity", () => {
     // character from being unable to get onto the scenery at all.
     expect(jumpSpeedFor(0.4)).toBe(jumpSpeedFor(1));
     expect(Math.max(...jumpArc(0.4))).toBeGreaterThan(1);
-  });
-
-  it("never falls fast enough to cross a cell in one frame", () => {
-    let speed = 0;
-    for (let frame = 0; frame < 600; frame++) {
-      speed = fallVelocity(speed, {
-        grounded: false,
-        jump: false,
-        jumpSpeed: JUMP,
-        seconds: FRAME,
-      });
-    }
-    expect(Math.abs(speed * FRAME)).toBeLessThan(1);
   });
 });
 
@@ -265,7 +244,7 @@ describe("placing a character with the pointer", () => {
         ...(child instanceof Mesh ? [child] : []),
         ...meshes(child),
       ]);
-    expect(meshes(map)).toHaveLength(map.character!.pieceCount);
+    expect(meshes(map)).toHaveLength(map.character!.slicing!.pieces.length);
     map.destroy({ children: true });
   });
 

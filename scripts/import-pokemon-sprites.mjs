@@ -105,17 +105,10 @@ const LEVEL_HEIGHT = 8;
 /**
  * How much of its own silhouette a character's footprint keeps.
  *
- * A body exactly as wide as a gap fits it only when it is aligned to the
- * flottant: the tolerance for threading a gap is the difference between the
- * two, and at equal size that difference is zero. Sliding along the wall never
- * finds the opening either, since it is a single point.
- *
- * A hair narrower than it looks is the old hand-written table's rule, and it is
- * what makes "hard to get through" out of "impossible": the passable window
- * becomes (gap - footprint) wide instead of nothing at all.
- *
- * Only the footprint. Shrinking the height would let characters under ceilings
- * they should not fit beneath.
+ * The window for threading a gap is (gap - footprint) wide, so a body exactly
+ * as wide as a gap can never get through it. A hair narrower turns
+ * "impossible" into "hard". Only the footprint: shrinking the height would let
+ * characters under ceilings they should not fit beneath.
  */
 const FOOTPRINT_MARGIN = 0.99;
 
@@ -233,7 +226,7 @@ const readAnimData = (dump) => {
       ),
     };
   }
-  return { shadowSize: Number(tag(xml, "ShadowSize")), anims };
+  return { anims };
 };
 
 /** First pixel of `rgb` in one frame, as [x, y] from the frame's top left */
@@ -297,28 +290,14 @@ const anchorsOf = (dump, anim, rows, placeBy) => {
 };
 
 /**
- * The four moments of a hop: leaving the ground, going up, coming down, landing.
+ * The four moments of a hop: leaving the ground, going up, coming down,
+ * landing. The engine holds each for as long as its own physics is in it, so a
+ * ten frame sheet has to come down to four poses.
  *
- * Read off the height of the body, which the anchors already carry: `body`
- * placement follows the black marker, so a smaller y is a character further off
- * the ground. The apex is where that is lowest; a frame from the middle of the
- * climb and one from the middle of the drop are the two poses, and the sheet's
- * first and last frames are the other two.
- *
- * Deliberately no cleverer than that. A hop sheet spends ten frames on what is
- * really two or three poses — the frames of a climb differ only in how high
- * they are drawn, which `body` placement takes straight back out — but WHICH
- * frames those are is not agreed on: Charmander crouches, rises over four,
- * drops over four and lands; Onix never lands; Metagross neither crouches nor
- * lands and climbs over six. Grouping frames by their pixels and expecting the
- * groups to line up with the moments worked for the first and threw on the
- * third. Taking the middle of each half cannot: whatever pose is being held
- * there is the pose of that half, and a sheet with no crouch simply hands its
- * climbing pose to the takeoff as well.
- *
- * Which matters because the engine, not the sheet, decides how long a jump
- * lasts: it holds the climbing pose while the character climbs, however long
- * that is, and no sequence of ten frames can be stretched to fit.
+ * The apex is where the body anchor is highest; the middle of each half is the
+ * pose that half holds, and the sheet's first and last frames are the other
+ * two. Deliberately no cleverer: sheets disagree on how many frames they spend
+ * crouching and landing, and some spend none.
  */
 const hopPhases = (anim, anchors) => {
   const frames = anim.durations.length;
@@ -406,7 +385,7 @@ const hitboxFrom = (sheet, anim, rows, anchor, column) => {
  * claim the same `walk.json`.
  */
 const describe = (type, dump) => {
-  const { shadowSize, anims } = readAnimData(dump);
+  const { anims } = readAnimData(dump);
   const into = join(ASSETS, type);
   rmSync(into, { recursive: true, force: true });
   mkdirSync(into, { recursive: true });
@@ -432,11 +411,6 @@ const describe = (type, dump) => {
     }
     const anchors = anchorsOf(dump, anim, rows, placeBy);
     animations[name] = {
-      // what the frame names carry between the type and the direction. Its own
-      // field because the sheets we had before this format spell it otherwise
-      key: name,
-      width: anim.width,
-      height: anim.height,
       frames: anim.durations.length,
       durations: anim.durations,
       anchors,
@@ -459,7 +433,7 @@ const describe = (type, dump) => {
       `${JSON.stringify(atlasOf(type, name, anim, rows, image), null, 2)}\n`
     );
   }
-  return { hitbox, shadowSize, directions: ROW_DIRECTIONS, animations };
+  return { hitbox, animations };
 };
 
 // ------------------------------------------------------------------ the tools
@@ -507,7 +481,7 @@ for (const type of types) {
     console.log(
       `${type}  hitbox ${hitbox.join(" x ")}  ` +
         Object.entries(animations)
-          .map(([name, a]) => `${name} ${a.frames}x8 ${a.width}x${a.height}`)
+          .map(([name, a]) => `${name} ${a.frames}x8`)
           .join("  ")
     );
   } catch (error) {

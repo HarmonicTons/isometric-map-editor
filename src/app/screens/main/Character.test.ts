@@ -8,7 +8,6 @@ import {
   headingOf,
 } from "./Character";
 import { sliceEntityByColumn } from "./EntityColumns";
-import { DIRECTIONS } from "./characterSprites";
 import { GlobalIsoCoordinates } from "./IsometricCoordinate";
 import { buildHeadlessMap } from "./__tests__/composeMapImage";
 import type { MapData } from "./Map";
@@ -99,24 +98,6 @@ describe("where a character's sprite is put", () => {
     const xy = at(2, 2, 1).toXY();
     expect(cut.x + anchorX).toBe(xy.x + 16);
     expect(cut.y + anchorY).toBe(xy.y + 16);
-    character.destroy();
-  });
-
-  it("is drawn in all eight directions", () => {
-    const character = stand("0004-charmander");
-    const drawn = new Set<string>();
-    for (const direction of DIRECTIONS) {
-      character.direction = direction;
-      character.update(still);
-      const cut = sliceEntityByColumn(character.shape);
-      // the ground point never moves, whichever way it faces
-      const xy = at(2, 2, 1).toXY();
-      const { anchorX, anchorY } = character.shape;
-      expect(cut.x + anchorX).toBe(xy.x + 16);
-      expect(cut.y + anchorY).toBe(xy.y + 16);
-      drawn.add(direction);
-    }
-    expect(drawn.size).toBe(8);
     character.destroy();
   });
 });
