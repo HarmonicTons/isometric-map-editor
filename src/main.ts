@@ -1,13 +1,13 @@
 import { TextureStyle } from "pixi.js";
 import { setEngine } from "./app/getEngine";
 import { LoadScreen } from "./app/screens/LoadScreen";
-import { GameScreen } from "./app/screens/main/GameScreen";
+import { GameScreen } from "./app/screens/GameScreen";
 import { userSettings } from "./app/utils/userSettings";
 import { CreationEngine } from "./engine/engine";
 import {
   PLACEABLE_CHARACTERS,
   loadCharacterSprites,
-} from "./app/screens/main/character/characterSprites";
+} from "./app/game/character/characterSprites";
 
 /**
  * Importing these modules will automatically register there plugins with the engine.

@@ -1,14 +1,13 @@
 import { Container, Graphics, Sprite } from "pixi.js";
 import { MapObject, MapObjectType } from "./map/MapObject";
 import { Tile, TileType } from "./map/Tile";
-import { engine } from "../../getEngine";
+import { engine } from "../getEngine";
 import { FancyButton } from "@pixi/ui";
 import { TileFragmentsTextures } from "./map/TileFragmentsTextures";
 import {
   GlobalIsoCoordinates,
   LocalIsoCoordinates,
 } from "./iso/IsometricCoordinate";
-import { CursorAction } from "./GameScreen";
 import { MapChunk } from "./map/MapChunk";
 import { characterPortrait, CharacterType } from "./character/Character";
 import { PLACEABLE_CHARACTERS } from "./character/characterSprites";
@@ -47,6 +46,27 @@ const mapObjects = [
   "large_pine",
   "large-rock",
 ] as MapObjectType[];
+
+/** What a click on the map does, as the control bar last set it */
+export type CursorAction =
+  | {
+      entityType: "tile";
+      type: TileType;
+      mode: "add";
+    }
+  | {
+      entityType: "object";
+      type: MapObjectType;
+      mode: "add";
+    }
+  | {
+      entityType: "character";
+      type: CharacterType;
+      mode: "add";
+    }
+  | {
+      mode: "remove";
+    };
 
 type Control = {
   button: FancyButton;

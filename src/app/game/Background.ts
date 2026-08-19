@@ -1,6 +1,6 @@
 import { Container, FillGradient, Graphics, Text } from "pixi.js";
-import { clamp } from "../../../engine/utils/maths";
-import { engine } from "../../getEngine";
+import { clamp } from "../../engine/utils/maths";
+import { engine } from "../getEngine";
 
 export class Background extends Container {
   public linearGradient: FillGradient;

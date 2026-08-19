@@ -30,8 +30,8 @@ import {
  */
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const rawAssetsDir = path.resolve(here, "../../../../../raw-assets/game{m}");
-const charactersDir = path.resolve(here, "../../../../../public/characters");
+const rawAssetsDir = path.resolve(here, "../../../../raw-assets/game{m}");
+const charactersDir = path.resolve(here, "../../../../public/characters");
 
 type AtlasJson = {
   frames: Record<

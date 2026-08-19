@@ -1,18 +1,19 @@
 import { Viewport } from "pixi-viewport";
 import type { Point, Texture, Ticker } from "pixi.js";
 import { Assets, Container, Text } from "pixi.js";
-import { engine } from "../../getEngine";
-import { Background } from "./Background";
-import { ControlBar } from "./ControlBar";
-import { Map, MapData } from "./map/Map";
-import type { CharacterType } from "./character/Character";
-import type { MapObjectType } from "./map/MapObject";
-import type { TileType } from "./map/Tile";
-import { TileFragmentsTextures } from "./map/TileFragmentsTextures";
-import { debugViewEnabled, listenForDebugViewToggle } from "./debug/DebugView";
-import { listenForKeyboardInput } from "./input/Keyboard";
-import { sampleGamepad } from "./input/Gamepad";
-import type { CameraMode, Pan } from "./Camera";
+import { engine } from "../getEngine";
+import { Background } from "../game/Background";
+import { ControlBar, CursorAction } from "../game/ControlBar";
+import { Map, MapData } from "../game/map/Map";
+import type { TileType } from "../game/map/Tile";
+import { TileFragmentsTextures } from "../game/map/TileFragmentsTextures";
+import {
+  debugViewEnabled,
+  listenForDebugViewToggle,
+} from "../game/debug/DebugView";
+import { listenForKeyboardInput } from "../game/input/Keyboard";
+import { sampleGamepad } from "../game/input/Gamepad";
+import type { CameraMode, Pan } from "../game/Camera";
 import {
   DEFAULT_ZOOM,
   INITIAL_ZOOM,
@@ -23,30 +24,10 @@ import {
   groundToWatch,
   nextCameraMode,
   settleLevel,
-} from "./Camera";
+} from "../game/Camera";
 
 /** How long the frame rate is averaged over before it is shown, in ms */
 const FPS_WINDOW = 500;
-
-export type CursorAction =
-  | {
-      entityType: "tile";
-      type: TileType;
-      mode: "add";
-    }
-  | {
-      entityType: "object";
-      type: MapObjectType;
-      mode: "add";
-    }
-  | {
-      entityType: "character";
-      type: CharacterType;
-      mode: "add";
-    }
-  | {
-      mode: "remove";
-    };
 
 /** The screen that holds the app */
 export class GameScreen extends Container {
