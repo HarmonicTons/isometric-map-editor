@@ -28,7 +28,7 @@ export type CellContent = TileType | Tile | MapObject;
  *
  * It is also the container everything standing over its columns is drawn in —
  * its own cells, and the pieces of a character straddling them — all sorted by
- * the same global depth key. See EntityColumns.
+ * the same global depth key. See SpriteColumns.
  */
 export class MapChunk extends Container {
   public cells: Record<IsoString, CellContent> = {};

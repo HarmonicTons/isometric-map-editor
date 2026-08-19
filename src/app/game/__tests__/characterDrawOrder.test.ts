@@ -6,7 +6,7 @@ import { MapData } from "../map/Map";
 /**
  * End-to-end depth order of a character, asserted on rendered pixels only.
  *
- * EntityColumns has its own exhaustive test, but it checks the cut against its
+ * SpriteColumns has its own exhaustive test, but it checks the cut against its
  * own idea of a tile's zIndex. This one goes through the real Map and MapChunk
  * and never looks at a key: it renders the same scene with and without the
  * character and asks who won on the pixels both want.

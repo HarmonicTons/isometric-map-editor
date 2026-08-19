@@ -7,7 +7,7 @@ import {
   frameAtTicks,
   headingOf,
 } from "./Character";
-import { sliceEntityByColumn } from "./EntityColumns";
+import { sliceSpriteByColumn } from "./SpriteColumns";
 import { GlobalIsoCoordinates } from "../iso/IsometricCoordinate";
 import { buildHeadlessMap } from "../__tests__/composeMapImage";
 import type { MapData } from "../map/Map";
@@ -92,7 +92,7 @@ describe("where a character's sprite is put", () => {
     const character = stand("0004-charmander");
     character.update(still);
     const { anchorX, anchorY } = character.shape;
-    const cut = sliceEntityByColumn(character.shape);
+    const cut = sliceSpriteByColumn(character.shape);
     // the middle of the top face of the cell it stands on, which is where
     // toXY's 32 by 24 diamond has its centre
     const xy = at(2, 2, 1).toXY();
@@ -244,7 +244,7 @@ describe("what a character plays", () => {
     const drawn = new Set<string>();
     for (let tick = 0; tick < 24; tick++) {
       const { anchorX, anchorY } = character.shape;
-      const cut = sliceEntityByColumn(character.shape);
+      const cut = sliceSpriteByColumn(character.shape);
       // wherever the sheet has moved the character inside its frame, the frame
       // moves the other way and the ground point does not budge
       expect(cut.x + anchorX).toBe(xy.x + 16);

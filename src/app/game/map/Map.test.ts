@@ -74,7 +74,7 @@ describe("placing a character with the pointer", () => {
         ...(child instanceof Mesh ? [child] : []),
         ...meshes(child),
       ]);
-    expect(meshes(map)).toHaveLength(map.character!.slicing!.pieces.length);
+    expect(meshes(map)).toHaveLength(map.character!.cut!.columns.length);
     map.destroy({ children: true });
   });
 
@@ -510,8 +510,8 @@ describe("the character's shadow", () => {
       // ...and under every piece of the character, which is what keeping the
       // shadow inside the footprint buys: no cell it lands on is ever in
       // front of the character it belongs to.
-      for (const cut of map.character!.slicing!.pieces) {
-        expect(cut.zIndex).toBeGreaterThan(piece.zIndex);
+      for (const column of map.character!.cut!.columns) {
+        expect(column.zIndex).toBeGreaterThan(piece.zIndex);
       }
     }
     map.destroy({ children: true });
@@ -547,7 +547,7 @@ describe("the character's shadow", () => {
     // that can reach the sprite at all.
     const map = landed();
     const lowest = Math.min(
-      ...map.character!.slicing!.pieces.map((cut) => cut.zIndex)
+      ...map.character!.cut!.columns.map((column) => column.zIndex)
     );
     expect(Math.min(...shadowsOf(map).map((p) => p.zIndex))).toBeLessThan(
       lowest

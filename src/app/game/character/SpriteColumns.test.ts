@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EntityShape, sliceEntityByColumn } from "./EntityColumns";
+import { SpriteShape, sliceSpriteByColumn } from "./SpriteColumns";
 import {
   GlobalIsoCoordinates,
   IsoBox,
@@ -41,7 +41,7 @@ const GIANT: Subject = {
 // Art drawn as the projection of the subject's own box: centred on it, its
 // bottom edge the box's lowest corner. Real characters carry an anchor per
 // frame; the partition only needs the sprite to be somewhere exact.
-const shape = (subject: Subject, iso: GlobalIsoCoordinates): EntityShape => ({
+const shape = (subject: Subject, iso: GlobalIsoCoordinates): SpriteShape => ({
   iso,
   hitbox: subject.hitbox,
   spriteWidth: subject.spriteWidth,
@@ -53,17 +53,17 @@ const shape = (subject: Subject, iso: GlobalIsoCoordinates): EntityShape => ({
 });
 
 const byColumn = (subject: Subject, iso: GlobalIsoCoordinates) =>
-  sliceEntityByColumn(shape(subject, iso));
+  sliceSpriteByColumn(shape(subject, iso));
 
 /** Which key the cut gives each pixel of the sprite */
 const keysOfPixels = (subject: Subject, iso: GlobalIsoCoordinates) => {
   const keys = new Float64Array(
     subject.spriteWidth * subject.spriteHeight
   ).fill(NaN);
-  for (const piece of byColumn(subject, iso).pieces) {
-    for (const run of piece.runs) {
+  for (const column of byColumn(subject, iso).columns) {
+    for (const run of column.runs) {
       for (let x = run.x; x < run.x + run.width; x++) {
-        keys[run.y * subject.spriteWidth + x] = piece.zIndex;
+        keys[run.y * subject.spriteWidth + x] = column.zIndex;
       }
     }
   }
@@ -136,7 +136,7 @@ const CORNERS = [
 
 /**
  * Ground truth for one pixel and one cell: is the cell's surface nearer to the
- * camera than the entity's, right here?
+ * camera than the sprite's, right here?
  *
  * A pixel is a square, so the question is asked at its four corners and only
  * answered when all four agree — undefined covers the ray missing the hitbox
@@ -156,11 +156,11 @@ const cellIsInFront = (
   for (const [dx, dy] of CORNERS) {
     const a = (left + column + dx - 16) / 16;
     const b = (top + row + dy - 8) / 8;
-    const onEntity = frontOf(a, b, box.min, box.max);
+    const onSprite = frontOf(a, b, box.min, box.max);
     const onCell = frontOf(a, b, cell.min, cell.max);
-    if (onEntity === undefined || onCell === undefined) return undefined;
-    if (onCell > onEntity) after++;
-    else if (onCell < onEntity) before++;
+    if (onSprite === undefined || onCell === undefined) return undefined;
+    if (onCell > onSprite) after++;
+    else if (onCell < onSprite) before++;
   }
   if (after === CORNERS.length) return true;
   if (before === CORNERS.length) return false;
@@ -170,7 +170,7 @@ const cellIsInFront = (
 type Tally = { checked: number; mistakes: string[] };
 
 /**
- * Every (pixel, cell) pair around the entity, weighed against the truth above.
+ * Every (pixel, cell) pair around the sprite, weighed against the truth above.
  *
  * Ground truth per PIXEL, not per cell: a ledge can be in front of the far
  * corner of a hitbox and behind the near one.
@@ -193,7 +193,7 @@ const weigh = (
       for (let u = originU - 2 * radius; u <= originU + 2 * radius; u++) {
         if (u < 0) continue;
         const side = sideOfCell(s, e, u, box);
-        // their silhouettes miss each other, or the entity stands in the cell,
+        // their silhouettes miss each other, or the sprite stands in the cell,
         // which is then empty: nothing has to be ordered
         if (side === "unrelated" || side === "interpenetrating") continue;
         const cell = {
@@ -246,14 +246,14 @@ const sweep = (step: number, heights: number[] = [4]) => {
   return positions;
 };
 
-describe("sliceEntityByColumn", () => {
+describe("sliceSpriteByColumn", () => {
   it("covers the sprite exactly once, pixel by pixel", () => {
     for (const iso of sweep(0.1)) {
       const seen = new Uint8Array(
         CHARACTER.spriteWidth * CHARACTER.spriteHeight
       );
-      for (const piece of byColumn(CHARACTER, iso).pieces) {
-        for (const run of piece.runs) {
+      for (const column of byColumn(CHARACTER, iso).columns) {
+        for (const run of column.runs) {
           expect(run.width).toBeGreaterThan(0);
           for (let x = run.x; x < run.x + run.width; x++) {
             seen[run.y * CHARACTER.spriteWidth + x]++;
@@ -264,24 +264,24 @@ describe("sliceEntityByColumn", () => {
     }
   });
 
-  it("keys every piece between the cell it stands in and the next one up", () => {
+  it("keys every column between the cell it stands in and the next one up", () => {
     for (const iso of sweep(0.05)) {
-      for (const piece of byColumn(CHARACTER, iso).pieces) {
-        const cell = paintersOrderKey(piece.s, piece.e, Math.floor(iso.u));
-        expect(piece.zIndex).toBeGreaterThanOrEqual(cell);
-        expect(piece.zIndex).toBeLessThan(cell + 1);
+      for (const column of byColumn(CHARACTER, iso).columns) {
+        const cell = paintersOrderKey(column.s, column.e, Math.floor(iso.u));
+        expect(column.zIndex).toBeGreaterThanOrEqual(cell);
+        expect(column.zIndex).toBeLessThan(cell + 1);
       }
     }
   });
 
-  it("gives each piece at most one run per row of the sprite", () => {
-    // What lets a renderer size a piece's buffers once and never resize them
+  it("gives each column at most one run per row of the sprite", () => {
+    // What lets a renderer size a mesh's buffers once and never resize them
     // (Pixi rebuilds a render group when a mesh's vertex count changes).
     for (const subject of [CHARACTER, GIANT]) {
       for (const iso of sweep(0.1)) {
-        for (const piece of byColumn(subject, iso).pieces) {
-          const rows = new Set(piece.runs.map((run) => run.y));
-          expect(rows.size).toBe(piece.runs.length);
+        for (const column of byColumn(subject, iso).columns) {
+          const rows = new Set(column.runs.map((run) => run.y));
+          expect(rows.size).toBe(column.runs.length);
         }
       }
     }

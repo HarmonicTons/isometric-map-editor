@@ -183,31 +183,31 @@ export class DebugOverlay {
         }
       }
     }
-    const slicing = character.slicing;
-    const pieces = slicing?.pieces ?? [];
-    pieces.forEach((piece, index) => {
+    const cut = character.cut;
+    const columns = cut?.columns ?? [];
+    columns.forEach((column, index) => {
       // at the centroid of the pixels it covers: the centre of the bounding
-      // box of a piece cut along a diagonal falls inside the neighbouring one
+      // box of a column cut along a diagonal falls inside the neighbouring one
       let covered = 0;
       let x = 0;
       let y = 0;
-      for (const run of piece.runs) {
+      for (const run of column.runs) {
         covered += run.width;
         x += (run.x + run.width / 2) * run.width;
         y += (run.y + 0.5) * run.width;
       }
-      // which column the piece stands over, except on the nearest piece, where
-      // the character's own position is worth more
+      // which column it stands over, except on the nearest one, where the
+      // character's own position is worth more
       const where =
-        index === pieces.length - 1
+        index === columns.length - 1
           ? `${s.toFixed(1)},${e.toFixed(1)},${u.toFixed(1)}`
-          : `${piece.s},${piece.e}`;
+          : `${column.s},${column.e}`;
       write(
         // one decimal is enough to separate two characters sharing a column
         where,
-        piece.zIndex.toFixed(1),
-        slicing!.x + x / covered,
-        slicing!.y + y / covered,
+        column.zIndex.toFixed(1),
+        cut!.x + x / covered,
+        cut!.y + y / covered,
         0xffe066
       );
     });

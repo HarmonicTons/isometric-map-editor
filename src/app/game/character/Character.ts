@@ -19,11 +19,7 @@ import type {
   SpriteAnimation,
 } from "./characterSprites";
 import { DIRECTIONS, animationOf, characterSprites } from "./characterSprites";
-import type {
-  EntityColumnPiece,
-  EntityColumnSlices,
-  EntityShape,
-} from "./EntityColumns";
+import type { SpriteColumn, SpriteCut, SpriteShape } from "./SpriteColumns";
 import { debugViewEnabled } from "../debug/DebugView";
 import { CharacterShadow } from "./CharacterShadow";
 
@@ -160,8 +156,8 @@ const columnFilter = (tint: number): ColorMatrixFilter => {
 /** Shared, and built on first use: a filter holds no per-object state */
 const PIECE_FILTERS: ColorMatrixFilter[] = [];
 
-const filterOf = (piece: EntityColumnPiece): ColorMatrixFilter => {
-  const index = (((piece.s % 2) + 2) % 2) * 2 + (((piece.e % 2) + 2) % 2);
+const filterOf = (column: SpriteColumn): ColorMatrixFilter => {
+  const index = (((column.s % 2) + 2) % 2) * 2 + (((column.e % 2) + 2) % 2);
   return (PIECE_FILTERS[index] ??= columnFilter(PIECE_TINTS[index]));
 };
 
@@ -172,13 +168,13 @@ const filterOf = (piece: EntityColumnPiece): ColorMatrixFilter => {
  */
 type CharacterPiece = {
   mesh: Mesh<MeshGeometry>;
-  /** the slice its buffers currently hold, so that a still frame refills none */
-  filledFrom?: EntityColumnPiece;
+  /** the column its buffers currently hold, so a still frame refills none */
+  filledFrom?: SpriteColumn;
 };
 
 /**
  * A character on the map. Not a display object itself: it owns one mesh per
- * column it stands over, each drawn by that column's chunk. See EntityColumns.
+ * column it stands over, each drawn by that column's chunk. See SpriteColumns.
  */
 export class Character {
   public readonly type: CharacterType;
@@ -211,7 +207,8 @@ export class Character {
   private pieces: CharacterPiece[] = [];
   /** What it drops on the ground under it, drawn alongside its own pieces */
   public readonly shadow = new CharacterShadow();
-  private slices?: EntityColumnSlices;
+  /** How it is cut up, as it currently stands. Written by setCut only. */
+  public cut?: SpriteCut;
   private slicedAt?: {
     s: number;
     e: number;
@@ -280,13 +277,8 @@ export class Character {
     return { animation: this.animation, frame: this.frame };
   }
 
-  /** The cut as it currently stands. Read by the depth-key debug overlay. */
-  public get slicing(): EntityColumnSlices | undefined {
-    return this.slices;
-  }
-
   /** What the cut is decided from: where it stands, how big, drawn where */
-  public get shape(): EntityShape {
+  public get shape(): SpriteShape {
     const [anchorX, anchorY] = this.anchor;
     return {
       iso: this.globalIsoCoordinates,
@@ -423,7 +415,7 @@ export class Character {
     );
   }
 
-  public setSlices(slices: EntityColumnSlices) {
+  public setCut(cut: SpriteCut) {
     const { s, e, u } = this.globalIsoCoordinates;
     const [anchorX, anchorY] = this.anchor;
     this.slicedAt = {
@@ -435,7 +427,7 @@ export class Character {
       anchorX,
       anchorY,
     };
-    this.slices = slices;
+    this.cut = cut;
   }
 
   /**
@@ -444,15 +436,15 @@ export class Character {
    * chunk boundary has pieces on both sides of it.
    */
   public render(hostOf: (s: number, e: number) => Container) {
-    const slices = this.slices;
-    if (!slices) return;
-    while (this.pieces.length < slices.pieces.length) {
+    const cut = this.cut;
+    if (!cut) return;
+    while (this.pieces.length < cut.columns.length) {
       this.pieces.push(this.createPiece());
     }
     this.pieces.forEach((mesh, index) => {
-      const piece = slices.pieces[index];
-      if (piece) {
-        this.showPiece(mesh, slices, piece, hostOf(piece.s, piece.e));
+      const column = cut.columns[index];
+      if (column) {
+        this.showPiece(mesh, cut, column, hostOf(column.s, column.e));
       } else {
         this.detach(mesh);
       }
@@ -488,7 +480,7 @@ export class Character {
    * Sized once for the worst case — one run per row — and never resized: Pixi
    * rebuilds a render group when a batched mesh's vertex count changes.
    */
-  private fillGeometry(piece: CharacterPiece, cut: EntityColumnPiece) {
+  private fillGeometry(piece: CharacterPiece, column: SpriteColumn) {
     const { geometry } = piece.mesh;
     const quads = this.spriteHeight;
     if (geometry.indices.length !== 6 * quads) {
@@ -508,7 +500,7 @@ export class Character {
     const { positions, uvs } = geometry;
     const width = this.spriteWidth;
     const height = this.spriteHeight;
-    cut.runs.forEach((run, quad) => {
+    column.runs.forEach((run, quad) => {
       const left = run.x;
       const right = run.x + run.width;
       const top = run.y;
@@ -532,37 +524,37 @@ export class Character {
         quad * 8
       );
     });
-    positions.fill(0, cut.runs.length * 8);
-    uvs.fill(0, cut.runs.length * 8);
+    positions.fill(0, column.runs.length * 8);
+    uvs.fill(0, column.runs.length * 8);
     geometry.getBuffer("aPosition").update();
     geometry.getBuffer("aUV").update();
   }
 
   private showPiece(
     piece: CharacterPiece,
-    slices: EntityColumnSlices,
-    cut: EntityColumnPiece,
+    cut: SpriteCut,
+    column: SpriteColumn,
     host: Container
   ) {
     if (piece.mesh.texture !== this.animationTexture) {
       piece.mesh.texture = this.animationTexture;
     }
-    const filter = debugViewEnabled() ? filterOf(cut) : undefined;
+    const filter = debugViewEnabled() ? filterOf(column) : undefined;
     // assigning rebuilds the effect list, so only when it actually changed
     if (piece.mesh.filters?.[0] !== filter) {
       piece.mesh.filters = filter ? [filter] : [];
     }
     // the buffers are the costly part: a still frame refills nothing
-    if (piece.filledFrom !== cut) {
-      this.fillGeometry(piece, cut);
-      piece.filledFrom = cut;
+    if (piece.filledFrom !== column) {
+      this.fillGeometry(piece, column);
+      piece.filledFrom = column;
     }
 
     // re-adding an existing child moves it to the end of the list every frame
     if (piece.mesh.parent !== host) host.addChild(piece.mesh);
-    piece.mesh.x = slices.x;
-    piece.mesh.y = slices.y;
-    piece.mesh.zIndex = cut.zIndex;
+    piece.mesh.x = cut.x;
+    piece.mesh.y = cut.y;
+    piece.mesh.zIndex = column.zIndex;
   }
 
   private detach(piece: CharacterPiece) {

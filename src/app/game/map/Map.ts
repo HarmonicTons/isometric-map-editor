@@ -15,7 +15,7 @@ import { MapObject, MapObjectType } from "./MapObject";
 import { Tile, TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 import { Character, CharacterType, headingOf } from "../character/Character";
-import { sliceEntityByColumn } from "../character/EntityColumns";
+import { sliceSpriteByColumn } from "../character/SpriteColumns";
 import {
   fallVelocity,
   freeDistance,
@@ -716,7 +716,7 @@ export class Map extends Container {
 
   /**
    * The chunk that draws whatever stands over the column (s, e) — see
-   * EntityColumns. Off the map is an error, not a case: isSolidAt walls the map
+   * SpriteColumns. Off the map is an error, not a case: isSolidAt walls the map
    * at the edge of its chunks.
    */
   public hostOver(s: number, e: number): MapChunk {
@@ -749,7 +749,7 @@ export class Map extends Container {
     const { globalIsoCoordinates: iso, hitbox } = character;
     character.shadow.sync(iso, hitbox, this);
     if (character.needsSlicing) {
-      character.setSlices(sliceEntityByColumn(character.shape));
+      character.setCut(sliceSpriteByColumn(character.shape));
     }
     character.render((s, e) => this.hostOver(s, e));
   }

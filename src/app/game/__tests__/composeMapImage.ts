@@ -253,7 +253,7 @@ export const loadCharacterDescriptions = () => {
 /**
  * A real Map, built headless. Pixi runs fine in Node as long as nothing is
  * rendered, so tests can exercise the actual chunking, painter's order and
- * character slicing rather than a stand-in. The caller owns it and must
+ * character cut rather than a stand-in. The caller owns it and must
  * destroy it.
  */
 export const buildHeadlessMap = (

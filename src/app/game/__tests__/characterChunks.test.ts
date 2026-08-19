@@ -133,9 +133,9 @@ describe("a character drawn by the chunks it stands over", () => {
     };
 
     const wanted = keysPerChunk(
-      map.character!.slicing!.pieces.map((cut) => ({
-        chunk: `${Math.floor(cut.s / 8)},${Math.floor(cut.e / 8)},0`,
-        zIndex: cut.zIndex,
+      map.character!.cut!.columns.map((column) => ({
+        chunk: `${Math.floor(column.s / 8)},${Math.floor(column.e / 8)},0`,
+        zIndex: column.zIndex,
       }))
     );
     // the position is a corner of four chunks: this checks all of them
@@ -197,7 +197,7 @@ describe("a character drawn by the chunks it stands over", () => {
       map.update(tick);
       // exactly the pieces it is currently cut into, nowhere else
       expect(characterPieces(map)).toHaveLength(
-        map.character!.slicing!.pieces.length
+        map.character!.cut!.columns.length
       );
     }
     // and the cells are back to exactly what they were, none added or dropped
@@ -249,7 +249,7 @@ describe("a character drawn by the chunks it stands over", () => {
     // exactly the pieces of the surviving character, nothing orphaned
     map.update(tick);
     expect(characterPieces(map)).toHaveLength(
-      map.character!.slicing!.pieces.length
+      map.character!.cut!.columns.length
     );
     map.destroy({ children: true });
     warn.mockRestore();
