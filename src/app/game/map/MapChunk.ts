@@ -1,11 +1,11 @@
-import { Container, DestroyOptions, Sprite, Ticker } from "pixi.js";
+import { Container, DestroyOptions, Sprite } from "pixi.js";
 import {
   ChunkIsoCoordinates,
   GlobalIsoCoordinates,
   IsoString,
   LocalIsoCoordinates,
   MAP_MAX_HEIGHT,
-} from "./IsometricCoordinate";
+} from "../iso/IsometricCoordinate";
 import { MapObject, MapObjectType } from "./MapObject";
 import { Tile, TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
@@ -25,9 +25,26 @@ export type CellContent = TileType | Tile | MapObject;
  *
  * A chunk only knows its own local domain.
  * Anything that may cross a chunk boundary must go through Map
+ *
+ * It is also the container everything standing over its columns is drawn in —
+ * its own cells, and the pieces of a character straddling them — all sorted by
+ * the same global depth key. See SpriteColumns.
  */
 export class MapChunk extends Container {
   public cells: Record<IsoString, CellContent> = {};
+
+  /**
+   * The highest level this chunk has ever held a cell at. A high-water mark,
+   * never lowered: it only bounds a search upward (Map.isOvershadowed).
+   */
+  public highestLevel = -1;
+
+  /**
+   * Bumped whenever `cells` changes, so anything derived from the whole chunk
+   * can tell in one comparison whether it is still current. Read by the debug
+   * chunk-boundary overlay.
+   */
+  public revision = 0;
 
   constructor(
     public size: number,
@@ -36,13 +53,17 @@ export class MapChunk extends Container {
     private getTileTypeByGlobalCoordinates: (
       iso: GlobalIsoCoordinates
     ) => TileType | undefined,
+    private isOvershadowed: (iso: GlobalIsoCoordinates) => boolean,
     public readonly chunkIsoCoordinates: ChunkIsoCoordinates
   ) {
     super();
     this.eventMode = "none";
     this.sortableChildren = true;
-    // Tiles are loaded as bare data: materialization of the shell happens in
-    // the map-wide pass, once every chunk's data is available
+    // a render group boundary, so moving the character rebuilds this chunk's
+    // draw instructions rather than the whole map's
+    this.isRenderGroup = true;
+    // tiles are loaded as bare data: the shell is materialized in the map-wide
+    // pass, once every chunk's data is available
     for (const key of Object.keys(chunkTileData) as IsoString[]) {
       const type = chunkTileData[key];
       if (!type) continue;
@@ -55,11 +76,23 @@ export class MapChunk extends Container {
         continue;
       }
       this.cells[key] = type;
+      this.highestLevel = Math.max(
+        this.highestLevel,
+        LocalIsoCoordinates.fromString(key).u
+      );
     }
   }
 
   public get isEmpty(): boolean {
     return Object.keys(this.cells).length === 0;
+  }
+
+  /**
+   * Whether it still draws anything: a cell of its own, the cursor, or a piece
+   * of a character standing over one of its columns.
+   */
+  public get hasViews(): boolean {
+    return this.children.length > 0;
   }
 
   private assertInside(iso: LocalIsoCoordinates) {
@@ -93,44 +126,32 @@ export class MapChunk extends Container {
     return this.cells[iso.toString()];
   }
 
-  public isCellOccupied(iso: LocalIsoCoordinates): boolean {
-    return this.getCellAt(iso) !== undefined;
-  }
-
-  public getTileTypeAt(iso: LocalIsoCoordinates): TileType | undefined {
-    const cell = this.getCellAt(iso);
-    if (typeof cell === "string") return cell;
-    return cell instanceof Tile ? cell.type : undefined;
-  }
-
-  public getDisplayedEntityAt(
-    iso: LocalIsoCoordinates
-  ): Tile | MapObject | undefined {
-    const cell = this.getCellAt(iso);
-    return typeof cell === "string" ? undefined : cell;
-  }
-
   public createTile(
     iso: LocalIsoCoordinates,
     type: TileType,
     skipFragmentsSetup = false
   ): Tile {
     this.assertInside(iso);
+    this.highestLevel = Math.max(this.highestLevel, iso.u);
     const globalIso = this.toGlobalIsoCoordinates(iso);
     const tile = new Tile({
       type,
       getTileTypeAt: this.getTileTypeByGlobalCoordinates,
+      isOvershadowed: this.isOvershadowed,
       localIsoCoordinates: iso,
       globalIsoCoordinates: globalIso,
       tileFragmentsTextures: this.tileFragmentsTextures,
       chunk: this,
       skipFragmentsSetup,
     });
-    const xy = iso.toXY();
+    // in map pixels, never relative to the chunk: a chunk is a grouping in the
+    // draw order, not a coordinate frame
+    const xy = globalIso.toXY();
     tile.x = xy.x;
     tile.y = xy.y;
-    tile.zIndex = iso.paintersOrderKey(MAP_MAX_HEIGHT);
+    tile.zIndex = globalIso.paintersOrderKey();
     this.cells[iso.toString()] = tile;
+    this.revision++;
     if (!skipFragmentsSetup) {
       this.syncTileAttachment(tile);
     }
@@ -159,6 +180,8 @@ export class MapChunk extends Container {
       );
     }
     this.cells[key] = tile.type;
+    this.revision++;
+    this.removeChild(tile);
     tile.destroy({ children: true });
   }
 
@@ -174,22 +197,29 @@ export class MapChunk extends Container {
       globalIsoCoordinates: globalIso,
       chunk: this,
     });
-    const xy = iso.toXY();
-    mapObject.x = xy.x;
+    const xy = globalIso.toXY();
+    mapObject.x = xy.x + 16;
     mapObject.y = xy.y + 24;
-    mapObject.zIndex = iso.paintersOrderKey(MAP_MAX_HEIGHT);
+    mapObject.zIndex = globalIso.paintersOrderKey();
     this.addChild(mapObject);
+    // every level it occupies: a large_pine is eleven cells tall, not one
     for (let i = 0; i < mapObject.objectHeight; i++) {
       const cellIso = new LocalIsoCoordinates(iso.s, iso.e, iso.u + i);
       this.assertInside(cellIso);
       this.cells[cellIso.toString()] = mapObject;
     }
+    this.highestLevel = Math.max(
+      this.highestLevel,
+      iso.u + mapObject.objectHeight - 1
+    );
+    this.revision++;
     return mapObject;
   }
 
   public removeEntityAt(iso: LocalIsoCoordinates) {
     const cell = this.getCellAt(iso);
     if (cell === undefined) return;
+    this.revision++;
     if (typeof cell === "string") {
       delete this.cells[iso.toString()];
       return;
@@ -203,6 +233,7 @@ export class MapChunk extends Container {
     } else {
       delete this.cells[iso.toString()];
     }
+    this.removeChild(cell);
     cell.destroy({ children: true });
   }
 
@@ -250,14 +281,15 @@ export class MapChunk extends Container {
     super.destroy(options);
   }
 
-  public addCursorSpriteAt(iso: LocalIsoCoordinates, sprite: Sprite) {
-    const xy = iso.toXY();
+  public addCursorSpriteAt(globalIso: GlobalIsoCoordinates, sprite: Sprite) {
+    const xy = globalIso.toXY();
     sprite.x = xy.x;
     sprite.y = xy.y;
-    sprite.zIndex = iso.paintersOrderKey(MAP_MAX_HEIGHT);
+    sprite.zIndex = globalIso.paintersOrderKey();
     this.addChild(sprite);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  public update(_time: Ticker) {}
+  public removeCursorSprite(sprite: Sprite) {
+    this.removeChild(sprite);
+  }
 }

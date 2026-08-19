@@ -1,15 +1,16 @@
 import { Container, Graphics, Sprite } from "pixi.js";
-import { MapObject, MapObjectType } from "./MapObject";
-import { Tile, TileType } from "./Tile";
-import { engine } from "../../getEngine";
+import { MapObject, MapObjectType } from "./map/MapObject";
+import { Tile, TileType } from "./map/Tile";
+import { engine } from "../getEngine";
 import { FancyButton } from "@pixi/ui";
-import { TileFragmentsTextures } from "./TileFragmentsTextures";
+import { TileFragmentsTextures } from "./map/TileFragmentsTextures";
 import {
   GlobalIsoCoordinates,
   LocalIsoCoordinates,
-} from "./IsometricCoordinate";
-import { CursorAction } from "./GameScreen";
-import { MapChunk } from "./MapChunk";
+} from "./iso/IsometricCoordinate";
+import { MapChunk } from "./map/MapChunk";
+import { characterPortrait, CharacterType } from "./character/Character";
+import { PLACEABLE_CHARACTERS } from "./character/characterSprites";
 
 const buttonAnimations = {
   hover: {
@@ -46,6 +47,27 @@ const mapObjects = [
   "large-rock",
 ] as MapObjectType[];
 
+/** What a click on the map does, as the control bar last set it */
+export type CursorAction =
+  | {
+      entityType: "tile";
+      type: TileType;
+      mode: "add";
+    }
+  | {
+      entityType: "object";
+      type: MapObjectType;
+      mode: "add";
+    }
+  | {
+      entityType: "character";
+      type: CharacterType;
+      mode: "add";
+    }
+  | {
+      mode: "remove";
+    };
+
 type Control = {
   button: FancyButton;
   type: string;
@@ -60,12 +82,14 @@ export class ControlBar extends Container {
     onClickRemove,
     onClickObject,
     onClickTile,
+    onClickCharacter,
     tileFragmentsTextures,
     getCursorAction,
   }: {
     onClickRemove: () => void;
     onClickTile: (type: TileType) => void;
     onClickObject: (type: MapObjectType) => void;
+    onClickCharacter: (type: CharacterType) => void;
     tileFragmentsTextures: TileFragmentsTextures;
     getCursorAction: () => CursorAction;
   }) {
@@ -127,6 +151,8 @@ export class ControlBar extends Container {
           globalIsoCoordinates,
           type,
           getTileTypeAt: () => undefined,
+          // a button, not a place on the map: nothing floats over it
+          isOvershadowed: () => false,
           tileFragmentsTextures,
           chunk: undefined as unknown as MapChunk,
         }),
@@ -151,6 +177,23 @@ export class ControlBar extends Container {
       });
       button.onPress.connect(() => {
         onClickObject(type);
+        this.update();
+      });
+      this.addChild(button);
+      this.controls.push({ button, type });
+    });
+
+    // Last, so the characters sit at the bottom of the bar, under the terrain
+    // they are put on top of.
+    PLACEABLE_CHARACTERS.forEach((type) => {
+      const button = new FancyButton({
+        defaultView: new Sprite(characterPortrait(type)),
+        scale: 1.5,
+        anchor: 0.5,
+        animations: buttonAnimations,
+      });
+      button.onPress.connect(() => {
+        onClickCharacter(type);
         this.update();
       });
       this.addChild(button);

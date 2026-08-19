@@ -1,11 +1,12 @@
-import { Container } from "pixi.js";
+import { Container, Graphics } from "pixi.js";
 import {
   GlobalIsoCoordinates,
   IsoCoordinates,
   LocalIsoCoordinates,
-} from "./IsometricCoordinate";
+} from "../iso/IsometricCoordinate";
 import type { MapChunk } from "./MapChunk";
-import { NoTextureFoundError } from "./NoTextureFoundError";
+import { NoTextureFoundError } from "../NoTextureFoundError";
+import { paintRuns, TOP_FACE_RUNS } from "../iso/Shadows";
 import { TileFragment, tileFragmentKeys } from "./TileFragment";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 
@@ -25,10 +26,15 @@ export class Tile extends Container {
   public globalIsoCoordinates: GlobalIsoCoordinates;
   public tileFragmentsTextures: TileFragmentsTextures;
   public getTileTypeAt: GetTileTypeAt;
+  /** Whether something floating above darkens this tile's top face */
+  private isOvershadowed: (iso: GlobalIsoCoordinates) => boolean;
   public chunk: MapChunk;
+  /** How many of this tile's children are fragments rather than its shade */
+  private fragments = 0;
   constructor({
     type,
     getTileTypeAt,
+    isOvershadowed,
     localIsoCoordinates,
     globalIsoCoordinates,
     tileFragmentsTextures,
@@ -40,6 +46,7 @@ export class Tile extends Container {
      */
     type: TileType;
     getTileTypeAt: GetTileTypeAt;
+    isOvershadowed: (iso: GlobalIsoCoordinates) => boolean;
     localIsoCoordinates: LocalIsoCoordinates;
     globalIsoCoordinates: GlobalIsoCoordinates;
     tileFragmentsTextures: TileFragmentsTextures;
@@ -52,6 +59,7 @@ export class Tile extends Container {
     this.globalIsoCoordinates = globalIsoCoordinates;
     this.tileFragmentsTextures = tileFragmentsTextures;
     this.getTileTypeAt = getTileTypeAt;
+    this.isOvershadowed = isOvershadowed;
     this.chunk = chunk;
     this.eventMode = "none";
 
@@ -61,13 +69,14 @@ export class Tile extends Container {
   }
 
   public get hasVisibleFragments(): boolean {
-    return this.children.length > 0;
+    return this.fragments > 0;
   }
 
   public updateNeighborhood() {
     this.removeChildren().forEach((child) => {
       child.destroy();
     });
+    this.fragments = 0;
     this.setTileFragments();
   }
 
@@ -83,6 +92,7 @@ export class Tile extends Container {
           tileFragmentsTextures: this.tileFragmentsTextures,
         });
         this.addChild(fragment);
+        this.fragments++;
       } catch (e) {
         if (e instanceof NoTextureFoundError) {
           // can safely ignore, just means this fragment is empty
@@ -91,5 +101,24 @@ export class Tile extends Container {
         throw e;
       }
     });
+    this.setShade();
+  }
+
+  /**
+   * Darken the whole top face when something floats over this tile.
+   *
+   * A child of the tile rather than a display object of its own: it inherits
+   * the tile's place in the draw order and is added last, so it lands on the
+   * tile's own art and on nothing else. No key to invent, nothing to sort.
+   *
+   * The pixels are the ones the top face owns — the same partition a
+   * character's shadow is read through, seam bias included.
+   */
+  private setShade() {
+    if (this.fragments === 0) return;
+    if (!this.isOvershadowed(this.globalIsoCoordinates)) return;
+    const shade = new Graphics({ eventMode: "none" });
+    paintRuns(shade, TOP_FACE_RUNS);
+    this.addChild(shade);
   }
 }

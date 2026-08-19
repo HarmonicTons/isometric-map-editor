@@ -1,0 +1,653 @@
+{
+  "frames": {
+    "0004-charmander_hop-se1.png": {
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-se2.png": {
+      "frame": {
+        "x": 32,
+        "y": 0,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-se3.png": {
+      "frame": {
+        "x": 64,
+        "y": 0,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-se4.png": {
+      "frame": {
+        "x": 96,
+        "y": 0,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-se5.png": {
+      "frame": {
+        "x": 128,
+        "y": 0,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-se6.png": {
+      "frame": {
+        "x": 160,
+        "y": 0,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-se7.png": {
+      "frame": {
+        "x": 192,
+        "y": 0,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-se8.png": {
+      "frame": {
+        "x": 224,
+        "y": 0,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-se9.png": {
+      "frame": {
+        "x": 256,
+        "y": 0,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-se10.png": {
+      "frame": {
+        "x": 288,
+        "y": 0,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-e1.png": {
+      "frame": {
+        "x": 0,
+        "y": 88,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-e2.png": {
+      "frame": {
+        "x": 32,
+        "y": 88,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-e3.png": {
+      "frame": {
+        "x": 64,
+        "y": 88,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-e4.png": {
+      "frame": {
+        "x": 96,
+        "y": 88,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-e5.png": {
+      "frame": {
+        "x": 128,
+        "y": 88,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-e6.png": {
+      "frame": {
+        "x": 160,
+        "y": 88,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-e7.png": {
+      "frame": {
+        "x": 192,
+        "y": 88,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-e8.png": {
+      "frame": {
+        "x": 224,
+        "y": 88,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-e9.png": {
+      "frame": {
+        "x": 256,
+        "y": 88,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-e10.png": {
+      "frame": {
+        "x": 288,
+        "y": 88,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-ne1.png": {
+      "frame": {
+        "x": 0,
+        "y": 176,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-ne2.png": {
+      "frame": {
+        "x": 32,
+        "y": 176,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-ne3.png": {
+      "frame": {
+        "x": 64,
+        "y": 176,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-ne4.png": {
+      "frame": {
+        "x": 96,
+        "y": 176,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-ne5.png": {
+      "frame": {
+        "x": 128,
+        "y": 176,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-ne6.png": {
+      "frame": {
+        "x": 160,
+        "y": 176,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-ne7.png": {
+      "frame": {
+        "x": 192,
+        "y": 176,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-ne8.png": {
+      "frame": {
+        "x": 224,
+        "y": 176,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-ne9.png": {
+      "frame": {
+        "x": 256,
+        "y": 176,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-ne10.png": {
+      "frame": {
+        "x": 288,
+        "y": 176,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-n1.png": {
+      "frame": {
+        "x": 0,
+        "y": 264,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-n2.png": {
+      "frame": {
+        "x": 32,
+        "y": 264,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-n3.png": {
+      "frame": {
+        "x": 64,
+        "y": 264,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-n4.png": {
+      "frame": {
+        "x": 96,
+        "y": 264,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-n5.png": {
+      "frame": {
+        "x": 128,
+        "y": 264,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-n6.png": {
+      "frame": {
+        "x": 160,
+        "y": 264,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-n7.png": {
+      "frame": {
+        "x": 192,
+        "y": 264,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-n8.png": {
+      "frame": {
+        "x": 224,
+        "y": 264,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-n9.png": {
+      "frame": {
+        "x": 256,
+        "y": 264,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-n10.png": {
+      "frame": {
+        "x": 288,
+        "y": 264,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-nw1.png": {
+      "frame": {
+        "x": 0,
+        "y": 352,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-nw2.png": {
+      "frame": {
+        "x": 32,
+        "y": 352,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-nw3.png": {
+      "frame": {
+        "x": 64,
+        "y": 352,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-nw4.png": {
+      "frame": {
+        "x": 96,
+        "y": 352,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-nw5.png": {
+      "frame": {
+        "x": 128,
+        "y": 352,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-nw6.png": {
+      "frame": {
+        "x": 160,
+        "y": 352,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-nw7.png": {
+      "frame": {
+        "x": 192,
+        "y": 352,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-nw8.png": {
+      "frame": {
+        "x": 224,
+        "y": 352,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-nw9.png": {
+      "frame": {
+        "x": 256,
+        "y": 352,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-nw10.png": {
+      "frame": {
+        "x": 288,
+        "y": 352,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-w1.png": {
+      "frame": {
+        "x": 0,
+        "y": 440,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-w2.png": {
+      "frame": {
+        "x": 32,
+        "y": 440,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-w3.png": {
+      "frame": {
+        "x": 64,
+        "y": 440,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-w4.png": {
+      "frame": {
+        "x": 96,
+        "y": 440,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-w5.png": {
+      "frame": {
+        "x": 128,
+        "y": 440,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-w6.png": {
+      "frame": {
+        "x": 160,
+        "y": 440,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-w7.png": {
+      "frame": {
+        "x": 192,
+        "y": 440,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-w8.png": {
+      "frame": {
+        "x": 224,
+        "y": 440,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-w9.png": {
+      "frame": {
+        "x": 256,
+        "y": 440,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-w10.png": {
+      "frame": {
+        "x": 288,
+        "y": 440,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-sw1.png": {
+      "frame": {
+        "x": 0,
+        "y": 528,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-sw2.png": {
+      "frame": {
+        "x": 32,
+        "y": 528,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-sw3.png": {
+      "frame": {
+        "x": 64,
+        "y": 528,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-sw4.png": {
+      "frame": {
+        "x": 96,
+        "y": 528,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-sw5.png": {
+      "frame": {
+        "x": 128,
+        "y": 528,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-sw6.png": {
+      "frame": {
+        "x": 160,
+        "y": 528,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-sw7.png": {
+      "frame": {
+        "x": 192,
+        "y": 528,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-sw8.png": {
+      "frame": {
+        "x": 224,
+        "y": 528,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-sw9.png": {
+      "frame": {
+        "x": 256,
+        "y": 528,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-sw10.png": {
+      "frame": {
+        "x": 288,
+        "y": 528,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-s1.png": {
+      "frame": {
+        "x": 0,
+        "y": 616,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-s2.png": {
+      "frame": {
+        "x": 32,
+        "y": 616,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-s3.png": {
+      "frame": {
+        "x": 64,
+        "y": 616,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-s4.png": {
+      "frame": {
+        "x": 96,
+        "y": 616,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-s5.png": {
+      "frame": {
+        "x": 128,
+        "y": 616,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-s6.png": {
+      "frame": {
+        "x": 160,
+        "y": 616,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-s7.png": {
+      "frame": {
+        "x": 192,
+        "y": 616,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-s8.png": {
+      "frame": {
+        "x": 224,
+        "y": 616,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-s9.png": {
+      "frame": {
+        "x": 256,
+        "y": 616,
+        "w": 32,
+        "h": 88
+      }
+    },
+    "0004-charmander_hop-s10.png": {
+      "frame": {
+        "x": 288,
+        "y": 616,
+        "w": 32,
+        "h": 88
+      }
+    }
+  },
+  "meta": {
+    "image": "0004-charmander_hop.png",
+    "format": "RGBA8888",
+    "size": {
+      "w": 320,
+      "h": 704
+    },
+    "scale": "1"
+  }
+}

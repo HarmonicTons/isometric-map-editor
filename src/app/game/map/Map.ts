@@ -2,21 +2,48 @@ import { Container, Sprite, Texture, Ticker } from "pixi.js";
 import {
   ChunkIsoCoordinates,
   GlobalIsoCoordinates,
+  IsoBox,
   IsoCoordinates,
   isoDirections,
   IsoString,
   LocalIsoCoordinates,
   MAP_MAX_HEIGHT,
   VisibleIsoDirection,
-} from "./IsometricCoordinate";
+} from "../iso/IsometricCoordinate";
 import { CellContent, ChunkTileData, MapChunk } from "./MapChunk";
 import { MapObject, MapObjectType } from "./MapObject";
 import { Tile, TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
+import { Character, CharacterType, headingOf } from "../character/Character";
+import { sliceSpriteByColumn } from "../character/SpriteColumns";
+import {
+  fallVelocity,
+  freeDistance,
+  isGrounded,
+  jumpSpeedFor,
+  slideAlong,
+  walkVelocity,
+} from "../character/Collision";
+import { keyboardInput } from "../input/Keyboard";
+import { sampleGamepad } from "../input/Gamepad";
+import { DebugOverlay } from "../debug/DebugOverlay";
 
 export type MapData = {
   objects: Record<string, string>;
   tiles: Record<string, string>;
+  characters: Record<string, string>;
+};
+
+/** What a camera watching the character needs from the map */
+export type CharacterAnchor = {
+  /** where to centre, in map pixels, taken at `standing` */
+  x: number;
+  y: number;
+  /** the level it stands on, or would stand on if it were not in the air */
+  standing: number;
+  /** the level its feet are actually at */
+  feet: number;
+  grounded: boolean;
 };
 
 /**
@@ -31,17 +58,17 @@ const shellTilesRelativeCoordinates = [
   new IsoCoordinates(1, 1, 1),
 ];
 
+/** One empty level: a tile resting on another has nowhere to cast a shadow */
+const OVERHANG_GAP = 2;
+
 /**
  * The map, as a collection of chunks.
  *
- * Chunks are vertical columns (chunksSize × chunksSize × MAP_MAX_HEIGHT):
- * there is no vertical chunk boundary, so a map object always lives in a
- * single chunk, whole sprite included.
+ * Chunks are vertical columns (chunksSize × chunksSize × MAP_MAX_HEIGHT), so
+ * there is no vertical boundary and anything tall lives in a single chunk.
  *
- * Map is the single authority on global coordinates: every operation that can
- * cross a chunk boundary (lookups, edits, neighborhood invalidation) lives
- * here and is routed to the owning chunk in local coordinates. Chunks never
- * know about their neighbors.
+ * Map is the single authority on global coordinates: everything that can cross
+ * a chunk boundary lives here and is routed to the owning chunk in local ones.
  */
 export class Map extends Container {
   public chunks: Record<IsoString, MapChunk> = {};
@@ -57,11 +84,36 @@ export class Map extends Container {
   >;
   private cursorMode?: "add" | "remove";
 
+  public character: Character | undefined;
+
+  /** DEBUG — the two F10 overlays, see DebugOverlay */
+  private readonly debug = new DebugOverlay(this);
+
+  private velocity = new IsoCoordinates(0, 0, 0);
+  /** Whether A was already down last frame, so a hold is not a second jump */
+  private jumpHeld = false;
+  /** Same, for the attack button: one attack per press */
+  private attackHeld = false;
+
+  /**
+   * How fast the character actually moved last frame — what it did, not what
+   * the stick asked for.
+   */
+  public get characterVelocity(): IsoCoordinates {
+    return this.velocity;
+  }
+
   constructor(
     mapData: MapData,
-    public tileFragmentsTextures: TileFragmentsTextures
+    public tileFragmentsTextures: TileFragmentsTextures,
+    /**
+     * Side of a chunk, in cells. Only tests change it, to put a boundary
+     * everywhere or nowhere.
+     */
+    chunksSize = 8
   ) {
     super();
+    this.chunksSize = chunksSize;
     // Pointer events are handled by GameScreen
     this.eventMode = "none";
     this.sortableChildren = true;
@@ -94,6 +146,18 @@ export class Map extends Container {
       if (!type) continue;
       const globalIso = GlobalIsoCoordinates.fromString(key);
       this.addMapObjectAt(globalIso, type as MapObjectType);
+    }
+
+    if (Object.keys(mapData.characters ?? {}).length > 1) {
+      console.warn(
+        `Only one character is supported: all but the last of ${Object.keys(mapData.characters).join(", ")} are dropped`
+      );
+    }
+    for (const key in mapData.characters) {
+      const type = mapData.characters[key];
+      if (!type) continue;
+      const globalIso = GlobalIsoCoordinates.fromString(key);
+      this.addCharacterAt(globalIso, type as CharacterType);
     }
 
     const cursorUTexture = Texture.from("cursor-u.png");
@@ -141,7 +205,11 @@ export class Map extends Container {
   }
 
   private getOrCreateChunkAt(iso: GlobalIsoCoordinates): MapChunk {
-    return this.getChunkAt(iso) ?? this.createChunk(this.toChunkIso(iso), {});
+    return this.getOrCreateChunk(this.toChunkIso(iso));
+  }
+
+  private getOrCreateChunk(chunkIso: ChunkIsoCoordinates): MapChunk {
+    return this.chunks[chunkIso.toString()] ?? this.createChunk(chunkIso, {});
   }
 
   private getCellContentAt(iso: GlobalIsoCoordinates): CellContent | undefined {
@@ -150,6 +218,16 @@ export class Map extends Container {
   }
 
   public isCellOccupied(iso: GlobalIsoCoordinates): boolean {
+    return this.getCellContentAt(iso) !== undefined;
+  }
+
+  /**
+   * Whether a cell blocks movement: for now anything in one does, tiles and
+   * objects alike. Outside the chunked area everything is solid, so the map is
+   * a walled box — at the edge of the CHUNKS, leaving room to fall off a ledge.
+   */
+  private isSolidAt(iso: GlobalIsoCoordinates): boolean {
+    if (!this.getChunkAt(iso)) return true;
     return this.getCellContentAt(iso) !== undefined;
   }
 
@@ -168,10 +246,34 @@ export class Map extends Container {
    * A tile cell deserves a display object iff at least one of its direct
    * neighbors is not a tile
    */
-  private isInShell(iso: GlobalIsoCoordinates): boolean {
+  public isInShell(iso: GlobalIsoCoordinates): boolean {
     return shellTilesRelativeCoordinates.some(
       (relative) => this.getCellContentAt(iso.add(relative)) === undefined
     );
+  }
+
+  /**
+   * Whether a cell holds a TILE — the only thing that casts a shade. A tree
+   * blocks movement but darkens nothing.
+   */
+  public isTileAt(iso: GlobalIsoCoordinates): boolean {
+    const cell = this.getCellContentAt(iso);
+    return typeof cell === "string" || cell instanceof Tile;
+  }
+
+  /**
+   * Whether a tile floating in this column darkens the top face of `iso`: the
+   * light comes straight down, so any tile above it with an empty level in
+   * between casts, at any height. Searched up to the chunk's highest cell.
+   */
+  public isOvershadowed(iso: GlobalIsoCoordinates): boolean {
+    // a face with something resting on it is not a face at all
+    if (this.isTileAt(iso.move("up"))) return false;
+    const ceiling = this.getChunkAt(iso)?.highestLevel ?? -1;
+    for (let u = iso.u + OVERHANG_GAP; u <= ceiling; u++) {
+      if (this.isTileAt(new GlobalIsoCoordinates(iso.s, iso.e, u))) return true;
+    }
+    return false;
   }
 
   public addTileAt(iso: GlobalIsoCoordinates, type: TileType) {
@@ -200,7 +302,10 @@ export class Map extends Container {
       return;
     }
 
-    this.getOrCreateChunkAt(iso).createMapObject(this.toLocalIso(iso), type);
+    return this.getOrCreateChunkAt(iso).createMapObject(
+      this.toLocalIso(iso),
+      type
+    );
   }
 
   public removeEntityAt(iso: GlobalIsoCoordinates) {
@@ -222,12 +327,17 @@ export class Map extends Container {
 
   private clearHoveredEntity(entity: Tile | MapObject) {
     if (this.hoveredEntity?.entity !== entity) return;
-    entity.chunk.removeChild(this.cursorSprites[this.hoveredEntity.side]);
+    entity.chunk.removeCursorSprite(
+      this.cursorSprites[this.hoveredEntity.side]
+    );
     this.hoveredEntity = undefined;
   }
 
   private destroyChunkIfEmpty(chunk: MapChunk) {
     if (!chunk.isEmpty) return;
+    // a chunk with no cell left may still draw something it does not own: the
+    // cursor, or a piece of a character standing over one of its columns
+    if (chunk.hasViews) return;
     console.debug(
       `Destroying empty chunk at ${chunk.chunkIsoCoordinates.toString()}`
     );
@@ -251,6 +361,17 @@ export class Map extends Container {
     this.refreshTileAt(iso.move("down").move("down"));
     this.refreshTileAt(iso.move("down").move("south"));
     this.refreshTileAt(iso.move("down").move("east"));
+    this.refreshColumnBelow(iso);
+  }
+
+  /**
+   * Refresh every cell of the column below `iso`: what floats over a cell can
+   * be at any height, so a new tile changes the shade all the way to the floor.
+   */
+  private refreshColumnBelow(iso: GlobalIsoCoordinates) {
+    for (let u = iso.u - 1; u >= 0; u--) {
+      this.refreshTileAt(new GlobalIsoCoordinates(iso.s, iso.e, u));
+    }
   }
 
   private refreshTileAt(iso: GlobalIsoCoordinates) {
@@ -290,11 +411,9 @@ export class Map extends Container {
       chunkTileData,
       this.tileFragmentsTextures,
       (iso) => this.getTileTypeAt(iso),
+      (iso) => this.isOvershadowed(iso),
       chunkIso
     );
-    const xy = chunkIso.toXY();
-    chunk.x = xy.x * this.chunksSize;
-    chunk.y = xy.y * this.chunksSize;
     // Columns have no u dimension: depth order between chunks is their diagonal
     chunk.zIndex = chunkIso.s + chunkIso.e;
     this.chunks[chunkIso.toString()] = chunk;
@@ -396,13 +515,13 @@ export class Map extends Container {
       !newHoveredEntity?.iso.equals(this.hoveredEntity?.iso)
     ) {
       if (this.hoveredEntity?.entity && !this.hoveredEntity.entity.destroyed) {
-        this.hoveredEntity.entity.chunk.removeChild(
+        this.hoveredEntity.entity.chunk.removeCursorSprite(
           this.cursorSprites[this.hoveredEntity.side]
         );
       }
       if (newHoveredEntity?.entity) {
         newHoveredEntity.entity.chunk.addCursorSpriteAt(
-          this.toLocalIso(newHoveredEntity.iso),
+          newHoveredEntity.iso,
           this.cursorSprites[newHoveredEntity.side]
         );
       }
@@ -427,6 +546,7 @@ export class Map extends Container {
     action:
       | { entityType: "tile"; type: TileType }
       | { entityType: "object"; type: MapObjectType }
+      | { entityType: "character"; type: CharacterType }
   ) {
     const hoveredEntity = this.getEntityAtPixelPosition(
       localPosition.x,
@@ -437,18 +557,223 @@ export class Map extends Container {
     const target = iso.move(side);
     if (action.entityType === "tile") {
       this.addTileAt(target, action.type);
-    } else {
+    } else if (action.entityType === "object") {
       this.addMapObjectAt(target, action.type);
+    } else {
+      // a character is not a cell: nothing to make room for, and dropped on
+      // the side of a tile it simply falls until it lands
+      this.addCharacterAt(target, action.type);
+    }
+  }
+
+  /**
+   * The highest ground under the cells the character's hitbox covers, or
+   * nothing within reach — a corner holds a character up as surely as its
+   * centre does.
+   */
+  private groundUnderCharacter(character: Character): number | undefined {
+    const iso = character.globalIsoCoordinates;
+    const cells = IsoBox.standingOn(iso, character.hitbox).cells();
+    let highest: number | undefined;
+    for (let cs = cells.min.s; cs < cells.max.s; cs++) {
+      for (let ce = cells.min.e; ce < cells.max.e; ce++) {
+        const ground = this.levelUnder(cs, ce, iso.u);
+        if (ground === undefined) continue;
+        if (highest === undefined || ground > highest) highest = ground;
+      }
+    }
+    return highest;
+  }
+
+  /**
+   * What a camera asked to look at the character should centre on, in map
+   * pixels: where it STANDS rather than where it is, half its height above that
+   * ground. The level comes out separately, for Camera.groundToWatch to decide
+   * what to do with while the character is in the air.
+   */
+  public get characterCentre(): CharacterAnchor | undefined {
+    const character = this.character;
+    if (!character) return undefined;
+    const iso = character.globalIsoCoordinates;
+    // nothing underneath it: nothing better to go by than where it is
+    const ground = this.groundUnderCharacter(character) ?? iso.u - 1;
+    const standing = ground + 1;
+    const xy = new GlobalIsoCoordinates(iso.s, iso.e, standing).toXY();
+    return {
+      x: xy.x + 16,
+      y: xy.y + 16 - 4 * character.hitbox.u,
+      standing,
+      feet: iso.u,
+      grounded: character.grounded,
+    };
+  }
+
+  /**
+   * Put a character on the map, MOVING the one already there if there is one —
+   * one per map for now. Destroying the old one takes its meshes out of the
+   * chunks they were drawn in.
+   */
+  public addCharacterAt(globalIso: GlobalIsoCoordinates, type: CharacterType) {
+    this.character?.destroy();
+    this.character = new Character({
+      type,
+      globalIsoCoordinates: globalIso,
+      direction: "s",
+    });
+    this.syncView();
+  }
+
+  /**
+   * What the player is asking for this frame, from either device. `jump` and
+   * `attack` are the press, not the hold.
+   */
+  private sampleInput() {
+    const pad = sampleGamepad();
+    const keys = keyboardInput();
+    // added rather than chosen between: whichever is at rest contributes nothing
+    const held = pad.jumpHeld || keys.jumpHeld;
+    const jump = held && !this.jumpHeld;
+    this.jumpHeld = held;
+    const attackHeld = pad.attackHeld || keys.attackHeld;
+    const attack = attackHeld && !this.attackHeld;
+    this.attackHeld = attackHeld;
+
+    return {
+      leftStickX: pad.left.x + keys.x,
+      leftStickY: pad.left.y + keys.y,
+      jump,
+      attack,
+    };
+  }
+
+  private simulate(
+    time: Ticker,
+    input: {
+      leftStickX: number;
+      leftStickY: number;
+      jump: boolean;
+      attack: boolean;
+    }
+  ) {
+    const character = this.character;
+    if (!character) {
+      return;
+    }
+    const seconds = time.deltaMS / 1000;
+    const before = character.globalIsoCoordinates;
+
+    const velocity = walkVelocity(input.leftStickX, input.leftStickY);
+    const deltaS = velocity.s * seconds;
+    const deltaE = velocity.e * seconds;
+
+    character.direction = headingOf(deltaS, deltaE) ?? character.direction;
+
+    const isSolid = (iso: GlobalIsoCoordinates) => this.isSolidAt(iso);
+    const walked = slideAlong(
+      isSolid,
+      character.globalIsoCoordinates,
+      character.hitbox,
+      deltaS,
+      deltaE
+    );
+
+    // rising and falling are one more sweep, on u: standing on something is
+    // asking to go down and being refused, which is what allows a jump
+    const fallBox = IsoBox.standingOn(walked, character.hitbox);
+    const grounded = isGrounded(isSolid, fallBox);
+    const jumped = input.jump && grounded;
+    character.verticalSpeed = fallVelocity(character.verticalSpeed, {
+      grounded,
+      jump: input.jump,
+      jumpSpeed: jumpSpeedFor(character.hitbox.u),
+      seconds,
+    });
+    const wanted = character.verticalSpeed * seconds;
+    const rise = freeDistance(isSolid, fallBox, "u", wanted);
+    // a floor caught it, or its head hit a ceiling: the speed is spent
+    if (rise !== wanted) character.verticalSpeed = 0;
+    const after = walked.add(new IsoCoordinates(0, 0, rise));
+    character.globalIsoCoordinates = after;
+
+    // what it actually did, not what the stick asked for
+    if (seconds > 0) {
+      this.velocity = new IsoCoordinates(
+        (after.s - before.s) / seconds,
+        (after.e - before.e) / seconds,
+        (after.u - before.u) / seconds
+      );
+    }
+
+    // last, so the frame is picked from where the character ended up and from
+    // what the ground let it do
+    character.update({
+      seconds,
+      grounded: isGrounded(isSolid, IsoBox.standingOn(after, character.hitbox)),
+      jumped,
+      attack: input.attack,
+    });
+  }
+
+  /**
+   * The chunk that draws whatever stands over the column (s, e) — see
+   * SpriteColumns. Off the map is an error, not a case: isSolidAt walls the map
+   * at the edge of its chunks.
+   */
+  public hostOver(s: number, e: number): MapChunk {
+    const chunkIso = this.toChunkIso(new GlobalIsoCoordinates(s, e, 0));
+    const chunk = this.chunks[chunkIso.toString()];
+    if (!chunk) {
+      throw new Error(
+        `Nothing to draw the column ${s},${e} in: chunk ${chunkIso.toString()} is outside the map`
+      );
+    }
+    return chunk;
+  }
+
+  /**
+   * The highest solid cell strictly below the level `u` in the column (s, e),
+   * if any. One column at a time, since a shadow can straddle cells at
+   * different heights.
+   */
+  public levelUnder(s: number, e: number, u: number): number | undefined {
+    for (let level = Math.floor(u) - 1; level >= 0; level--) {
+      if (this.isSolidAt(new GlobalIsoCoordinates(s, e, level))) return level;
+    }
+    return undefined;
+  }
+
+  /** Cut the character up and hand each piece to its own column's chunk. */
+  private syncView() {
+    const character = this.character;
+    if (!character) return;
+    const { globalIsoCoordinates: iso, hitbox } = character;
+    character.shadow.sync(iso, hitbox, this);
+    if (character.needsSlicing) {
+      character.setCut(sliceSpriteByColumn(character.shape));
+    }
+    character.render((s, e) => this.hostOver(s, e));
+  }
+
+  private updateCosmetics(time: Ticker) {
+    if (this.hoveredEntity) {
+      const pulse = 0.5 + 0.5 * Math.sin((time.lastTime / 800) * Math.PI * 2);
+      this.cursorSprites[this.hoveredEntity.side].alpha = 0.3 + 0.7 * pulse;
     }
   }
 
   public update(time: Ticker) {
-    if (!this.hoveredEntity) return;
-    const pulse = 0.5 + 0.5 * Math.sin((time.lastTime / 800) * Math.PI * 2);
-    this.cursorSprites[this.hoveredEntity.side].alpha = 0.3 + 0.7 * pulse;
+    const input = this.sampleInput();
+    // picks the animation frame too, which the view is then cut from
+    this.simulate(time, input);
+    this.updateCosmetics(time);
+    this.syncView();
+    this.debug.sync();
   }
 
   public destroy(options?: { children?: boolean; texture?: boolean }) {
+    // it borrows chunks to be drawn in, so it goes before the chunks do
+    this.character?.destroy();
+    this.character = undefined;
     this.cursorSprites.up.destroy();
     this.cursorSprites.east.destroy();
     this.cursorSprites.south.destroy();

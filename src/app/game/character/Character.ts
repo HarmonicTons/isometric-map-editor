@@ -1,0 +1,563 @@
+import type { ColorMatrix } from "pixi.js";
+import {
+  Color,
+  ColorMatrixFilter,
+  Container,
+  Mesh,
+  MeshGeometry,
+  Texture,
+} from "pixi.js";
+import {
+  GlobalIsoCoordinates,
+  IsoCoordinates,
+} from "../iso/IsometricCoordinate";
+import { NoTextureFoundError } from "../NoTextureFoundError";
+import type {
+  CharacterAnimationName,
+  CharacterDirection,
+  CharacterSprites,
+  SpriteAnimation,
+} from "./characterSprites";
+import { DIRECTIONS, animationOf, characterSprites } from "./characterSprites";
+import type { SpriteColumn, SpriteCut, SpriteShape } from "./SpriteColumns";
+import { debugViewEnabled } from "../debug/DebugView";
+import { CharacterShadow } from "./CharacterShadow";
+
+/**
+ * The type of a character (e.g. who).
+ */
+export type CharacterType = string & { readonly __brand: "CharacterType" };
+
+export type { CharacterAnimationName, CharacterDirection };
+
+/** The walking speed the sheets are drawn for, in cells per second */
+export const NOMINAL_WALK_SPEED = 3;
+
+/** A tick of the durations in the sheets, in seconds */
+const TICK = 1 / 60;
+
+/**
+ * How long a character stands doing nothing before it plays its idle animation
+ * once. Between two of them it holds the resting frame of its walk cycle.
+ */
+export const IDLE_EVERY = 5;
+
+/** The frame of the walk cycle a character rests on */
+const RESTING_FRAME = 0;
+
+/** The frame a run of durations is on after `ticks`, looping */
+export const frameAtTicks = (durations: number[], ticks: number): number => {
+  const cycle = durations.reduce((total, held) => total + held, 0);
+  let left = ((ticks % cycle) + cycle) % cycle;
+  for (let frame = 0; frame < durations.length; frame++) {
+    left -= durations[frame];
+    if (left < 0) return frame;
+  }
+  return durations.length - 1;
+};
+
+/**
+ * The eight-way heading a movement asks for, or undefined if it asks for none.
+ * The sheet's rows are 45° apart on SCREEN, so the movement is projected before
+ * its angle is taken.
+ */
+export const headingOf = (
+  deltaS: number,
+  deltaE: number
+): CharacterDirection | undefined => {
+  if (deltaS === 0 && deltaE === 0) return undefined;
+  const x = 16 * (deltaE - deltaS);
+  const y = 8 * (deltaE + deltaS);
+  // `se` is straight down the screen, each next one 45° counter-clockwise
+  const turns = 2 - Math.atan2(y, x) / (Math.PI / 4);
+  return DIRECTIONS[
+    ((Math.round(turns) % DIRECTIONS.length) + DIRECTIONS.length) %
+      DIRECTIONS.length
+  ];
+};
+
+/** How one frame of one animation is named in the atlas */
+const frameName = (
+  type: string,
+  animation: CharacterAnimationName,
+  direction: CharacterDirection,
+  frame: number
+) => `${type}_${animation}-${direction}${frame + 1}.png`;
+
+/**
+ * How a character is shown on the control bar: the resting frame of its walk
+ * cycle, seen from `se`.
+ */
+export const characterPortrait = (type: CharacterType): Texture => {
+  const key = frameName(type, "walk", "se", RESTING_FRAME);
+  const texture = Texture.from(key);
+  if (!texture) {
+    throw new NoTextureFoundError(
+      `No texture found for character ${type}: ${key}`
+    );
+  }
+  return texture;
+};
+
+/** What the simulation tells a character every frame */
+export type CharacterStep = {
+  seconds: number;
+  /** whether something under its feet refused to let it down */
+  grounded: boolean;
+  /** the jump that just took off, not the button being held */
+  jumped: boolean;
+  /** the press that starts an attack */
+  attack: boolean;
+};
+
+/**
+ * DEBUG — one colour per column while the overlay is on, as a checkerboard over
+ * (s, e) so a piece keeps its colour while the character walks.
+ */
+const PIECE_TINTS = [0xff6b6b, 0x6bc8ff, 0xffd76b, 0x8cff8c];
+
+/** How much of the sprite's shading survives, the rest a flat floor of colour */
+const SHADING = 0.55;
+
+/** Rec. 709, so that the sprite's shading survives at the brightness it had */
+const [LUMA_R, LUMA_G, LUMA_B] = [0.2126, 0.7152, 0.0722];
+
+/**
+ * The colour of a column as a filter: drop the sprite to its luminance, then
+ * paint that luminance back in the column's colour.
+ */
+const columnFilter = (tint: number): ColorMatrixFilter => {
+  const filter = new ColorMatrixFilter();
+  const [r, g, b] = new Color(tint).toArray();
+  // out.channel = channel * (SHADING * luma + (1 - SHADING)), the last term of
+  // a row being the constant the shader adds
+  const row = (channel: number) =>
+    [
+      LUMA_R * SHADING * channel,
+      LUMA_G * SHADING * channel,
+      LUMA_B * SHADING * channel,
+      0,
+      (1 - SHADING) * channel,
+    ] as const;
+  // alpha untouched, so the silhouette is unchanged
+  filter.matrix = [
+    ...row(r),
+    ...row(g),
+    ...row(b),
+    0,
+    0,
+    0,
+    1,
+    0,
+  ] as ColorMatrix;
+  return filter;
+};
+
+/** Shared, and built on first use: a filter holds no per-object state */
+const PIECE_FILTERS: ColorMatrixFilter[] = [];
+
+const filterOf = (column: SpriteColumn): ColorMatrixFilter => {
+  const index = (((column.s % 2) + 2) % 2) * 2 + (((column.e % 2) + 2) % 2);
+  return (PIECE_FILTERS[index] ??= columnFilter(PIECE_TINTS[index]));
+};
+
+/**
+ * One piece of the character's sprite: what it shows over a single column of the
+ * map, drawn at that column's depth key. A mesh, since a piece is not a
+ * rectangle but a run of pixels per row, one quad each.
+ */
+type CharacterPiece = {
+  mesh: Mesh<MeshGeometry>;
+  /** the column its buffers currently hold, so a still frame refills none */
+  filledFrom?: SpriteColumn;
+};
+
+/**
+ * A character on the map. Not a display object itself: it owns one mesh per
+ * column it stands over, each drawn by that column's chunk. See SpriteColumns.
+ */
+export class Character {
+  public readonly type: CharacterType;
+  /** What it occupies, for collision and for depth order alike */
+  public readonly hitbox: IsoCoordinates;
+  public globalIsoCoordinates: GlobalIsoCoordinates;
+  /** How fast it is rising, in cells per second. Negative while falling. */
+  public verticalSpeed = 0;
+  /** Whether something under its feet is holding it up */
+  public grounded = true;
+  public direction: CharacterDirection;
+
+  /** How it is drawn, all of it: sheets, anchors, hitbox */
+  private readonly sprites: CharacterSprites;
+  /** What it is playing, and where in it */
+  private animation: CharacterAnimationName = "idle";
+  private frame = 0;
+  /** Animation frame currently displayed, as found in the atlas */
+  private animationTexture: Texture;
+  /** Ground covered since it last stood still, in cells. See update. */
+  private walked = 0;
+  private walkedFrom?: { s: number; e: number };
+  /** What is left of the attack under way, in seconds */
+  private attacking = 0;
+  /** How long it has been standing there, in seconds. Reset by a break. */
+  private stillFor = 0;
+  /** How far into an idle break it is, in seconds, or none if it is not on one */
+  private breaking?: number;
+  private wasGrounded = true;
+  private pieces: CharacterPiece[] = [];
+  /** What it drops on the ground under it, drawn alongside its own pieces */
+  public readonly shadow = new CharacterShadow();
+  /** How it is cut up, as it currently stands. Written by setCut only. */
+  public cut?: SpriteCut;
+  private slicedAt?: {
+    s: number;
+    e: number;
+    u: number;
+    width: number;
+    height: number;
+    anchorX: number;
+    anchorY: number;
+  };
+
+  constructor({
+    type,
+    direction = "s",
+    globalIsoCoordinates,
+  }: {
+    type: CharacterType;
+    direction?: CharacterDirection;
+    globalIsoCoordinates: GlobalIsoCoordinates;
+  }) {
+    this.type = type;
+    this.sprites = characterSprites(type);
+    const [s, e, u] = this.sprites.hitbox;
+    this.hitbox = new IsoCoordinates(s, e, u);
+    this.direction = direction;
+    this.globalIsoCoordinates = globalIsoCoordinates;
+    this.animationTexture = this.textureOf();
+  }
+
+  /** The animation being played */
+  private get playing(): SpriteAnimation {
+    return animationOf(this.sprites, this.animation);
+  }
+
+  private textureOf(): Texture {
+    const key = frameName(
+      this.type,
+      this.animation,
+      this.direction,
+      this.frame
+    );
+    const texture = Texture.from(key);
+    if (!texture) {
+      throw new NoTextureFoundError(
+        `No texture found for character ${this.type} playing ${this.animation}: ${key}`
+      );
+    }
+    return texture;
+  }
+
+  /**
+   * Where the sprite's ground point is, in pixels from its top left. Every
+   * frame carries its own, so an animation that travels inside its frame is
+   * pinned back onto the spot the engine puts the character on.
+   */
+  private get anchor(): [number, number] {
+    const animation = this.playing;
+    const row = DIRECTIONS.indexOf(this.direction);
+    return (
+      animation.anchors[row * animation.frames + this.frame] ??
+      animation.anchors[0]
+    );
+  }
+
+  /** What it is showing right now: which animation, and which of its frames */
+  public get showing(): { animation: CharacterAnimationName; frame: number } {
+    return { animation: this.animation, frame: this.frame };
+  }
+
+  /** What the cut is decided from: where it stands, how big, drawn where */
+  public get shape(): SpriteShape {
+    const [anchorX, anchorY] = this.anchor;
+    return {
+      iso: this.globalIsoCoordinates,
+      hitbox: this.hitbox,
+      spriteWidth: this.spriteWidth,
+      spriteHeight: this.spriteHeight,
+      anchorX,
+      anchorY,
+    };
+  }
+
+  public get spriteWidth(): number {
+    return this.animationTexture.frame.width;
+  }
+
+  public get spriteHeight(): number {
+    return this.animationTexture.frame.height;
+  }
+
+  /**
+   * Pick what to show: which animation, and which of its frames.
+   *
+   * Three clocks — an attack and a stand run on the wall clock, a walk on the
+   * ground it covers, a hop on the physics.
+   */
+  public update(step: CharacterStep) {
+    const previous = this.walkedFrom;
+    const { s, e } = this.globalIsoCoordinates;
+    this.walkedFrom = { s, e };
+    const covered = previous ? Math.hypot(s - previous.s, e - previous.e) : 0;
+    if (covered === 0) {
+      // start the next departure on a step rather than mid-stride
+      this.walked = 0;
+    }
+    this.walked += covered;
+    if (covered > 0) {
+      this.stillFor = 0;
+      this.breaking = undefined;
+    }
+
+    this.attacking = step.attack
+      ? this.lengthOf("attack")
+      : Math.max(0, this.attacking - step.seconds);
+
+    const airborne = !step.grounded;
+    const landing = step.grounded && !this.wasGrounded;
+
+    if (this.attacking > 0) {
+      this.animation = "attack";
+      this.frame = frameAtTicks(
+        this.playing.durations,
+        (this.lengthOf("attack") - this.attacking) / TICK
+      );
+    } else if (step.jumped || airborne || landing) {
+      this.animation = "hop";
+      this.frame = this.hopFrame(step, airborne);
+    } else if (covered > 0) {
+      this.animation = "walk";
+      this.frame = frameAtTicks(
+        this.playing.durations,
+        this.walked / (NOMINAL_WALK_SPEED * TICK)
+      );
+    } else {
+      this.standStill(step.seconds);
+    }
+
+    this.wasGrounded = step.grounded;
+    this.grounded = step.grounded;
+    this.animationTexture = this.textureOf();
+  }
+
+  /** How long an animation lasts played once: exactly as long as its sheet says */
+  private lengthOf(name: CharacterAnimationName): number {
+    const { durations } = animationOf(this.sprites, name);
+    return durations.reduce((total, held) => total + held, 0) * TICK;
+  }
+
+  /**
+   * Doing nothing: the resting frame of the walk cycle, and every IDLE_EVERY
+   * seconds one run of the idle animation to break it. The counter only
+   * advances while it stands there, so walking off postpones the next break.
+   */
+  private standStill(seconds: number) {
+    const idle = this.sprites.animations.idle;
+    if (this.breaking !== undefined) {
+      this.breaking += seconds;
+      if (this.breaking >= this.lengthOf("idle")) this.breaking = undefined;
+    } else {
+      this.stillFor += seconds;
+      if (idle && this.stillFor >= IDLE_EVERY) {
+        this.breaking = 0;
+        this.stillFor = 0;
+      }
+    }
+
+    if (idle && this.breaking !== undefined) {
+      this.animation = "idle";
+      this.frame = frameAtTicks(idle.durations, this.breaking / TICK);
+    } else {
+      this.animation = "walk";
+      this.frame = RESTING_FRAME;
+    }
+  }
+
+  /**
+   * Leaving the ground, rising, falling, landing — whichever the engine is in.
+   */
+  private hopFrame(step: CharacterStep, airborne: boolean) {
+    const [takeoff, rising, falling, touchdown] = this.playing.phases ?? [
+      0, 0, 0, 0,
+    ];
+    if (step.jumped) return takeoff;
+    if (!airborne) return touchdown;
+    return this.verticalSpeed > 0 ? rising : falling;
+  }
+
+  /**
+   * Whether the cut is out of date: the position, the sprite's size, and its
+   * anchor, which a change of frame moves on its own.
+   */
+  public get needsSlicing(): boolean {
+    const { s, e, u } = this.globalIsoCoordinates;
+    const [anchorX, anchorY] = this.anchor;
+    const at = this.slicedAt;
+    return (
+      at === undefined ||
+      at.s !== s ||
+      at.e !== e ||
+      at.u !== u ||
+      at.width !== this.spriteWidth ||
+      at.height !== this.spriteHeight ||
+      at.anchorX !== anchorX ||
+      at.anchorY !== anchorY
+    );
+  }
+
+  public setCut(cut: SpriteCut) {
+    const { s, e, u } = this.globalIsoCoordinates;
+    const [anchorX, anchorY] = this.anchor;
+    this.slicedAt = {
+      s,
+      e,
+      u,
+      width: this.spriteWidth,
+      height: this.spriteHeight,
+      anchorX,
+      anchorY,
+    };
+    this.cut = cut;
+  }
+
+  /**
+   * Draw the character as its current pieces, reusing the pooled meshes. Each
+   * asks `hostOf` where its own column is drawn, so a character straddling a
+   * chunk boundary has pieces on both sides of it.
+   */
+  public render(hostOf: (s: number, e: number) => Container) {
+    const cut = this.cut;
+    if (!cut) return;
+    while (this.pieces.length < cut.columns.length) {
+      this.pieces.push(this.createPiece());
+    }
+    this.pieces.forEach((mesh, index) => {
+      const column = cut.columns[index];
+      if (column) {
+        this.showPiece(mesh, cut, column, hostOf(column.s, column.e));
+      } else {
+        this.detach(mesh);
+      }
+    });
+  }
+
+  public destroy() {
+    for (const piece of this.pieces) {
+      this.detach(piece);
+      const { geometry } = piece.mesh;
+      // the texture is the atlas frame, not ours; the geometry is, and
+      // Mesh.destroy only drops its reference to it
+      piece.mesh.destroy();
+      geometry.destroy();
+    }
+    this.pieces = [];
+    this.shadow.destroy();
+  }
+
+  private createPiece(): CharacterPiece {
+    const geometry = new MeshGeometry({ shrinkBuffersToFit: false });
+    // over 100 vertices Pixi stops batching on its own, and each piece would
+    // take a draw call and split its chunk's tile batch on its way past
+    geometry.batchMode = "batch";
+    return { mesh: new Mesh({ geometry, texture: this.animationTexture }) };
+  }
+
+  /**
+   * Fill a mesh with the runs of one piece, one quad per run. Positions are
+   * pixels from the sprite's top left, UVs the same points over the animation
+   * frame, so a frame change never touches the buffers.
+   *
+   * Sized once for the worst case — one run per row — and never resized: Pixi
+   * rebuilds a render group when a batched mesh's vertex count changes.
+   */
+  private fillGeometry(piece: CharacterPiece, column: SpriteColumn) {
+    const { geometry } = piece.mesh;
+    const quads = this.spriteHeight;
+    if (geometry.indices.length !== 6 * quads) {
+      geometry.positions = new Float32Array(8 * quads);
+      geometry.uvs = new Float32Array(8 * quads);
+      const indices = new Uint32Array(6 * quads);
+      for (let quad = 0; quad < quads; quad++) {
+        const corner = quad * 4;
+        indices.set(
+          [corner, corner + 1, corner + 2, corner, corner + 2, corner + 3],
+          quad * 6
+        );
+      }
+      geometry.indices = indices;
+      geometry.indexBuffer.update();
+    }
+    const { positions, uvs } = geometry;
+    const width = this.spriteWidth;
+    const height = this.spriteHeight;
+    column.runs.forEach((run, quad) => {
+      const left = run.x;
+      const right = run.x + run.width;
+      const top = run.y;
+      const bottom = run.y + 1;
+      // top-left, top-right, bottom-right, bottom-left
+      positions.set(
+        [left, top, right, top, right, bottom, left, bottom],
+        quad * 8
+      );
+      uvs.set(
+        [
+          left / width,
+          top / height,
+          right / width,
+          top / height,
+          right / width,
+          bottom / height,
+          left / width,
+          bottom / height,
+        ],
+        quad * 8
+      );
+    });
+    positions.fill(0, column.runs.length * 8);
+    uvs.fill(0, column.runs.length * 8);
+    geometry.getBuffer("aPosition").update();
+    geometry.getBuffer("aUV").update();
+  }
+
+  private showPiece(
+    piece: CharacterPiece,
+    cut: SpriteCut,
+    column: SpriteColumn,
+    host: Container
+  ) {
+    if (piece.mesh.texture !== this.animationTexture) {
+      piece.mesh.texture = this.animationTexture;
+    }
+    const filter = debugViewEnabled() ? filterOf(column) : undefined;
+    // assigning rebuilds the effect list, so only when it actually changed
+    if (piece.mesh.filters?.[0] !== filter) {
+      piece.mesh.filters = filter ? [filter] : [];
+    }
+    // the buffers are the costly part: a still frame refills nothing
+    if (piece.filledFrom !== column) {
+      this.fillGeometry(piece, column);
+      piece.filledFrom = column;
+    }
+
+    // re-adding an existing child moves it to the end of the list every frame
+    if (piece.mesh.parent !== host) host.addChild(piece.mesh);
+    piece.mesh.x = cut.x;
+    piece.mesh.y = cut.y;
+    piece.mesh.zIndex = column.zIndex;
+  }
+
+  private detach(piece: CharacterPiece) {
+    piece.mesh.parent?.removeChild(piece.mesh);
+  }
+}
