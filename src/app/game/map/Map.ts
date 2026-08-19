@@ -58,9 +58,6 @@ const shellTilesRelativeCoordinates = [
   new IsoCoordinates(1, 1, 1),
 ];
 
-/** How far below its feet a character still casts a shadow, in cells */
-const SHADOW_REACH = 16;
-
 /** One empty level: a tile resting on another has nowhere to cast a shadow */
 const OVERHANG_GAP = 2;
 
@@ -735,16 +732,11 @@ export class Map extends Container {
 
   /**
    * The highest solid cell strictly below the level `u` in the column (s, e),
-   * or nothing within SHADOW_REACH. One column at a time, since a shadow can
-   * straddle cells at different heights.
+   * if any. One column at a time, since a shadow can straddle cells at
+   * different heights.
    */
   public levelUnder(s: number, e: number, u: number): number | undefined {
-    const below = Math.floor(u) - 1;
-    for (
-      let level = below;
-      level > below - SHADOW_REACH && level >= 0;
-      level--
-    ) {
+    for (let level = Math.floor(u) - 1; level >= 0; level--) {
       if (this.isSolidAt(new GlobalIsoCoordinates(s, e, level))) return level;
     }
     return undefined;
