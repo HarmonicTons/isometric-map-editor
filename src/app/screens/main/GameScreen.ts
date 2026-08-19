@@ -5,6 +5,7 @@ import { engine } from "../../getEngine";
 import { Background } from "./Background";
 import { ControlBar } from "./ControlBar";
 import { Map, MapData } from "./Map";
+import type { CharacterType } from "./Character";
 import type { MapObjectType } from "./MapObject";
 import type { TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
@@ -14,6 +15,7 @@ import { sampleGamepad } from "./Gamepad";
 import type { CameraMode, Pan } from "./Camera";
 import {
   DEFAULT_ZOOM,
+  INITIAL_ZOOM,
   MAX_ZOOM,
   MIN_ZOOM,
   cameraPan,
@@ -35,6 +37,11 @@ export type CursorAction =
   | {
       entityType: "object";
       type: MapObjectType;
+      mode: "add";
+    }
+  | {
+      entityType: "character";
+      type: CharacterType;
       mode: "add";
     }
   | {
@@ -89,7 +96,7 @@ export class GameScreen extends Container {
       // the wheel had no bounds either; it just takes so many notches to reach
       // anywhere absurd that nobody ever did
       .clampZoom({ minScale: MIN_ZOOM, maxScale: MAX_ZOOM });
-    this.mapContainer.setZoom(DEFAULT_ZOOM);
+    this.mapContainer.setZoom(INITIAL_ZOOM);
     const centerX = Math.round(engine().screen.width * 0.5);
     const centerY = Math.round(engine().screen.height * 0.5);
     this.mapContainer.x = centerX;
@@ -160,6 +167,13 @@ export class GameScreen extends Container {
       onClickObject: (type) => {
         this.cursorAction = {
           entityType: "object",
+          type,
+          mode: "add",
+        };
+      },
+      onClickCharacter: (type) => {
+        this.cursorAction = {
+          entityType: "character",
           type,
           mode: "add",
         };

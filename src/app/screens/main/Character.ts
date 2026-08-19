@@ -106,6 +106,34 @@ export const headingOf = (
   ];
 };
 
+/** How one frame of one animation is named in the atlas */
+const frameName = (
+  type: string,
+  animation: SpriteAnimation,
+  direction: CharacterDirection,
+  frame: number
+) => `${type}_${animation.key}-${direction}${frame + 1}.png`;
+
+/**
+ * How a character is shown off the map — on the control bar.
+ *
+ * The pose it stands in, seen head on: the resting frame of its walk cycle,
+ * which is what a character not doing anything looks like (see RESTING_FRAME),
+ * from `se`, which points straight down the screen. Taken from its own sheets,
+ * so adding a character to the palette is a line in a list and nothing else.
+ */
+export const characterPortrait = (type: CharacterType): Texture => {
+  const walk = animationOf(characterSprites(type), "walk");
+  const key = frameName(type, walk, "se", RESTING_FRAME);
+  const texture = Texture.from(key);
+  if (!texture) {
+    throw new NoTextureFoundError(
+      `No texture found for character ${type}: ${key}`
+    );
+  }
+  return texture;
+};
+
 /** What the simulation tells a character every frame */
 export type CharacterStep = {
   seconds: number;
@@ -266,8 +294,7 @@ export class Character {
   }
 
   private textureOf(): Texture {
-    const animation = this.playing;
-    const key = `${this.type}_${animation.key}-${this.direction}${this.frame + 1}.png`;
+    const key = frameName(this.type, this.playing, this.direction, this.frame);
     const texture = Texture.from(key);
     if (!texture) {
       throw new NoTextureFoundError(

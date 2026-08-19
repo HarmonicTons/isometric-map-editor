@@ -10,6 +10,8 @@ import {
 } from "./IsometricCoordinate";
 import { CursorAction } from "./GameScreen";
 import { MapChunk } from "./MapChunk";
+import { characterPortrait, CharacterType } from "./Character";
+import { PLACEABLE_CHARACTERS } from "./characterSprites";
 
 const buttonAnimations = {
   hover: {
@@ -60,12 +62,14 @@ export class ControlBar extends Container {
     onClickRemove,
     onClickObject,
     onClickTile,
+    onClickCharacter,
     tileFragmentsTextures,
     getCursorAction,
   }: {
     onClickRemove: () => void;
     onClickTile: (type: TileType) => void;
     onClickObject: (type: MapObjectType) => void;
+    onClickCharacter: (type: CharacterType) => void;
     tileFragmentsTextures: TileFragmentsTextures;
     getCursorAction: () => CursorAction;
   }) {
@@ -153,6 +157,23 @@ export class ControlBar extends Container {
       });
       button.onPress.connect(() => {
         onClickObject(type);
+        this.update();
+      });
+      this.addChild(button);
+      this.controls.push({ button, type });
+    });
+
+    // Last, so the characters sit at the bottom of the bar, under the terrain
+    // they are put on top of.
+    PLACEABLE_CHARACTERS.forEach((type) => {
+      const button = new FancyButton({
+        defaultView: new Sprite(characterPortrait(type)),
+        scale: 1.5,
+        anchor: 0.5,
+        animations: buttonAnimations,
+      });
+      button.onPress.connect(() => {
+        onClickCharacter(type);
         this.update();
       });
       this.addChild(button);

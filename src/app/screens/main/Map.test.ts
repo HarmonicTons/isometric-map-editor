@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { Container, Graphics, Ticker } from "pixi.js";
+import { Container, Graphics, Mesh, Ticker } from "pixi.js";
 import {
   fallVelocity,
   jumpSpeedFor,
@@ -12,6 +12,7 @@ import {
   loadCharacterDescriptions,
 } from "./__tests__/composeMapImage";
 import { characterSprites, registerCharacterSprites } from "./characterSprites";
+import type { CharacterType } from "./Character";
 import {
   GlobalIsoCoordinates,
   IsoBox,
@@ -226,6 +227,56 @@ const floor = (): MapData => {
   }
   return { tiles, objects: {}, characters: { "4,4,6": SUBJECT } };
 };
+
+describe("placing a character with the pointer", () => {
+  beforeAll(() => {
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+  });
+
+  /** The middle of the top face of the cell at (s, e, 0), in map pixels */
+  const topFaceOf = (s: number, e: number) => {
+    const xy = new GlobalIsoCoordinates(s, e, 0).toXY();
+    return { x: xy.x + 16, y: xy.y + 8 };
+  };
+
+  const place = (map: IsometricMap, s: number, e: number) =>
+    map.addEntityAtPointerPosition(topFaceOf(s, e), {
+      entityType: "character",
+      type: SUBJECT as CharacterType,
+    });
+
+  it("stands it on the cell that was clicked", () => {
+    const map = buildHeadlessMap(floor());
+    place(map, 3, 5);
+    const iso = map.character!.globalIsoCoordinates;
+    expect([iso.s, iso.e, iso.u]).toEqual([3, 5, 1]);
+    map.destroy({ children: true });
+  });
+
+  it("moves the one already there rather than adding a second", () => {
+    // One character per map for now, so placing IS moving. What must not
+    // happen is the old one left behind, drawn for ever and never updated.
+    const map = buildHeadlessMap(floor());
+    map.update({ deltaMS: 1000 / 60, lastTime: 0 } as Ticker);
+    place(map, 3, 5);
+    map.update({ deltaMS: 1000 / 60, lastTime: 0 } as Ticker);
+    const meshes = (node: Container): Container[] =>
+      node.children.flatMap((child) => [
+        ...(child instanceof Mesh ? [child] : []),
+        ...meshes(child),
+      ]);
+    expect(meshes(map)).toHaveLength(map.character!.pieceCount);
+    map.destroy({ children: true });
+  });
+
+  it("does nothing where there is no map to click on", () => {
+    const map = buildHeadlessMap(floor());
+    const before = map.character!.globalIsoCoordinates.toString();
+    place(map, 40, 40);
+    expect(map.character!.globalIsoCoordinates.toString()).toBe(before);
+    map.destroy({ children: true });
+  });
+});
 
 describe("a character falling onto the ground", () => {
   beforeAll(() => {

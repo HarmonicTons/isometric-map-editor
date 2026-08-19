@@ -30,7 +30,21 @@ export const CAMERA_SPEED = 600;
 export const MIN_ZOOM = 0.5;
 export const MAX_ZOOM = 8;
 
-/** Where the zoom starts, and what R3 puts it back to */
+/**
+ * The zoom a map opens at.
+ *
+ * One map pixel per screen pixel, which is what editing wants: the most of the
+ * map on screen at once, and the art at the size it was drawn.
+ */
+export const INITIAL_ZOOM = 1;
+
+/**
+ * What R3 puts the zoom at, along with pinning the camera on the character.
+ *
+ * Playing is the other half of the app and wants the opposite of editing —
+ * close in on the character, where the animation is worth looking at. Which is
+ * why it takes a button to get here and the map does not open on it.
+ */
 export const DEFAULT_ZOOM = 4;
 
 /**

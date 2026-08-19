@@ -12,7 +12,19 @@
  * created deep inside a constructor and cannot wait for a round trip.
  */
 
+import type { CharacterType } from "./Character";
+
 export type CharacterAnimationName = "idle" | "walk" | "hop" | "attack";
+
+/**
+ * The characters the editor can drop on a map, in the order the control bar
+ * shows them.
+ *
+ * Loaded at start-up whatever the map holds, since any of them can be placed on
+ * any map at any time — see main.ts. Which is why this is a short list and not
+ * everything under public/characters: each one is a fetch nobody asked for.
+ */
+export const PLACEABLE_CHARACTERS = ["0004-charmander"] as CharacterType[];
 
 /**
  * The eight directions, in the order the rows of a sheet are stacked: `se`

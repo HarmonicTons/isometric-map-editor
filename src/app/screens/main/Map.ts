@@ -264,6 +264,11 @@ export class Map extends Container {
       this.addMapObjectAt(globalIso, type as MapObjectType);
     }
 
+    if (Object.keys(mapData.characters ?? {}).length > 1) {
+      console.warn(
+        `Only one character is supported: all but the last of ${Object.keys(mapData.characters).join(", ")} are dropped`
+      );
+    }
     for (const key in mapData.characters) {
       const type = mapData.characters[key];
       if (!type) continue;
@@ -678,6 +683,7 @@ export class Map extends Container {
     action:
       | { entityType: "tile"; type: TileType }
       | { entityType: "object"; type: MapObjectType }
+      | { entityType: "character"; type: CharacterType }
   ) {
     const hoveredEntity = this.getEntityAtPixelPosition(
       localPosition.x,
@@ -688,8 +694,12 @@ export class Map extends Container {
     const target = iso.move(side);
     if (action.entityType === "tile") {
       this.addTileAt(target, action.type);
-    } else {
+    } else if (action.entityType === "object") {
       this.addMapObjectAt(target, action.type);
+    } else {
+      // Nothing to make room for and nothing to refuse: a character is not a
+      // cell. Dropped on the side of a tile it simply falls until it lands.
+      this.addCharacterAt(target, action.type);
     }
   }
 
@@ -845,16 +855,16 @@ export class Map extends Container {
     };
   }
 
+  /**
+   * Put a character on the map, MOVING the one already there if there is one.
+   *
+   * One character per map for now, so this is both how the editor places one
+   * and how it moves it. Destroying the old one is what takes its meshes out of
+   * the chunks they were drawn in; left alone they would stay there for ever,
+   * still drawn and never updated again.
+   */
   public addCharacterAt(globalIso: GlobalIsoCoordinates, type: CharacterType) {
-    if (this.character) {
-      // One character per map for now. Without this the previous one would
-      // leave its meshes in the chunks forever, still drawn and never updated
-      // again.
-      console.warn(
-        `Replacing the character of the map: only one is supported, ${type} evicts ${this.character.type}`
-      );
-      this.character.destroy();
-    }
+    this.character?.destroy();
     this.character = new Character({
       type,
       globalIsoCoordinates: globalIso,

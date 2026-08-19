@@ -4,7 +4,10 @@ import { LoadScreen } from "./app/screens/LoadScreen";
 import { GameScreen } from "./app/screens/main/GameScreen";
 import { userSettings } from "./app/utils/userSettings";
 import { CreationEngine } from "./engine/engine";
-import { loadCharacterSprites } from "./app/screens/main/characterSprites";
+import {
+  PLACEABLE_CHARACTERS,
+  loadCharacterSprites,
+} from "./app/screens/main/characterSprites";
 
 /**
  * Importing these modules will automatically register there plugins with the engine.
@@ -56,8 +59,13 @@ if ("serviceWorker" in navigator) {
     });
   // The description of a character is served, not bundled — a thousand of them
   // would be paid for by everyone. Fetched here so that Map can go on building
-  // its characters in a constructor.
-  await loadCharacterSprites(Object.values(mapData.characters ?? {}));
+  // its characters in a constructor, and the palette alongside whatever the map
+  // holds: the editor can drop one of those on any map, with no round trip to
+  // wait for between the click and the character.
+  await loadCharacterSprites([
+    ...(Object.values(mapData.characters ?? {}) as string[]),
+    ...PLACEABLE_CHARACTERS,
+  ]);
   // Show the main screen once the load screen is dismissed
   await engine.navigation.showScreen(GameScreen, mapData);
 })();
