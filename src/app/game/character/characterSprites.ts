@@ -15,7 +15,7 @@ export type CharacterAnimationName = "idle" | "walk" | "hop" | "attack";
  * The characters the editor can drop on a map, in the order the control bar
  * shows them. All of them are loaded at start-up, whatever the map holds.
  */
-export const PLACEABLE_CHARACTERS = ["0004-charmander"] as CharacterType[];
+export const PLACEABLE_CHARACTERS = ["0004-charmander", "0095-onix"] as CharacterType[];
 
 /**
  * The eight directions, in the order the rows of a sheet are stacked: `se`
