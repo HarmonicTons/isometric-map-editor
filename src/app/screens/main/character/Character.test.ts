@@ -8,9 +8,9 @@ import {
   headingOf,
 } from "./Character";
 import { sliceEntityByColumn } from "./EntityColumns";
-import { GlobalIsoCoordinates } from "./IsometricCoordinate";
-import { buildHeadlessMap } from "./__tests__/composeMapImage";
-import type { MapData } from "./Map";
+import { GlobalIsoCoordinates } from "../iso/IsometricCoordinate";
+import { buildHeadlessMap } from "../__tests__/composeMapImage";
+import type { MapData } from "../map/Map";
 
 /** Registers every atlas in Pixi's cache. Building one map is enough. */
 const loadTextures = () => {

@@ -4,7 +4,7 @@ import {
   IsoBox,
   IsoCoordinates,
   paintersOrderKey,
-} from "./IsometricCoordinate";
+} from "../iso/IsometricCoordinate";
 
 /**
  * Cutting an entity's sprite by the column of the map each of its pixels stands

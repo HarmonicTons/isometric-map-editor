@@ -3,8 +3,8 @@ import {
   GlobalIsoCoordinates,
   IsoCoordinates,
   LocalIsoCoordinates,
-} from "./IsometricCoordinate";
-import { NoTextureFoundError } from "./NoTextureFoundError";
+} from "../iso/IsometricCoordinate";
+import { NoTextureFoundError } from "../NoTextureFoundError";
 import type { MapChunk } from "./MapChunk";
 
 /**

@@ -5,7 +5,7 @@ import {
   IsoBox,
   IsoCoordinates,
   paintersOrderKey,
-} from "./IsometricCoordinate";
+} from "../iso/IsometricCoordinate";
 
 /**
  * The cut, against the geometry it stands for.

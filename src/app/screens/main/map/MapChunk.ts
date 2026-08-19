@@ -5,7 +5,7 @@ import {
   IsoString,
   LocalIsoCoordinates,
   MAP_MAX_HEIGHT,
-} from "./IsometricCoordinate";
+} from "../iso/IsometricCoordinate";
 import { MapObject, MapObjectType } from "./MapObject";
 import { Tile, TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";

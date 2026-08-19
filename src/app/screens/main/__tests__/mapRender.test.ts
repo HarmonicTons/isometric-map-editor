@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import type { MapData } from "../Map";
+import type { MapData } from "../map/Map";
 import { composeMapImage } from "./composeMapImage";
 
 /**

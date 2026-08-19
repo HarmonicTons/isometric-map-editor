@@ -7,8 +7,11 @@ import {
   MeshGeometry,
   Texture,
 } from "pixi.js";
-import { GlobalIsoCoordinates, IsoCoordinates } from "./IsometricCoordinate";
-import { NoTextureFoundError } from "./NoTextureFoundError";
+import {
+  GlobalIsoCoordinates,
+  IsoCoordinates,
+} from "../iso/IsometricCoordinate";
+import { NoTextureFoundError } from "../NoTextureFoundError";
 import type {
   CharacterAnimationName,
   CharacterDirection,
@@ -21,7 +24,8 @@ import type {
   EntityColumnSlices,
   EntityShape,
 } from "./EntityColumns";
-import { debugViewEnabled } from "./DebugView";
+import { debugViewEnabled } from "../debug/DebugView";
+import { CharacterShadow } from "./CharacterShadow";
 
 /**
  * The type of a character (e.g. who).
@@ -232,6 +236,8 @@ export class Character {
   private breaking?: number;
   private wasGrounded = true;
   private pieces: CharacterPiece[] = [];
+  /** What it drops on the ground under it, drawn alongside its own pieces */
+  public readonly shadow = new CharacterShadow();
   private slices?: EntityColumnSlices;
   private slicedAt?: {
     s: number;
@@ -505,6 +511,7 @@ export class Character {
       geometry.destroy();
     }
     this.pieces = [];
+    this.shadow.destroy();
   }
 
   private createPiece(): CharacterPiece {

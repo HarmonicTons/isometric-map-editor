@@ -4,14 +4,14 @@ import { Assets, Container, Text } from "pixi.js";
 import { engine } from "../../getEngine";
 import { Background } from "./Background";
 import { ControlBar } from "./ControlBar";
-import { Map, MapData } from "./Map";
-import type { CharacterType } from "./Character";
-import type { MapObjectType } from "./MapObject";
-import type { TileType } from "./Tile";
-import { TileFragmentsTextures } from "./TileFragmentsTextures";
-import { debugViewEnabled, listenForDebugViewToggle } from "./DebugView";
-import { listenForKeyboardInput } from "./Keyboard";
-import { sampleGamepad } from "./Gamepad";
+import { Map, MapData } from "./map/Map";
+import type { CharacterType } from "./character/Character";
+import type { MapObjectType } from "./map/MapObject";
+import type { TileType } from "./map/Tile";
+import { TileFragmentsTextures } from "./map/TileFragmentsTextures";
+import { debugViewEnabled, listenForDebugViewToggle } from "./debug/DebugView";
+import { listenForKeyboardInput } from "./input/Keyboard";
+import { sampleGamepad } from "./input/Gamepad";
 import type { CameraMode, Pan } from "./Camera";
 import {
   DEFAULT_ZOOM,

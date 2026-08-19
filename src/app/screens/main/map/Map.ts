@@ -1,41 +1,32 @@
-import { Container, Graphics, Sprite, Text, Texture, Ticker } from "pixi.js";
+import { Container, Sprite, Texture, Ticker } from "pixi.js";
 import {
   ChunkIsoCoordinates,
   GlobalIsoCoordinates,
-  IsoAxis,
-  isoAxes,
   IsoBox,
   IsoCoordinates,
-  IsoDirection,
-  isoDirectionByAxis,
   isoDirections,
   IsoString,
   LocalIsoCoordinates,
   MAP_MAX_HEIGHT,
-  paintersOrderKey,
   VisibleIsoDirection,
-} from "./IsometricCoordinate";
+} from "../iso/IsometricCoordinate";
 import { CellContent, ChunkTileData, MapChunk } from "./MapChunk";
 import { MapObject, MapObjectType } from "./MapObject";
 import { Tile, TileType } from "./Tile";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
+import { Character, CharacterType, headingOf } from "../character/Character";
+import { sliceEntityByColumn } from "../character/EntityColumns";
 import {
-  Character,
-  CharacterType,
-  NOMINAL_WALK_SPEED,
-  headingOf,
-} from "./Character";
-import { sliceEntityByColumn } from "./EntityColumns";
-import { debugViewEnabled } from "./DebugView";
-import { keyboardInput } from "./Keyboard";
-import { sampleGamepad } from "./Gamepad";
-import {
-  NORTH_EDGE_RUNS,
-  paintRuns,
-  ShadowRun,
-  shadowRuns,
-  WEST_EDGE_RUNS,
-} from "./Shadows";
+  fallVelocity,
+  freeDistance,
+  isGrounded,
+  jumpSpeedFor,
+  slideAlong,
+  walkVelocity,
+} from "../character/Collision";
+import { keyboardInput } from "../input/Keyboard";
+import { sampleGamepad } from "../input/Gamepad";
+import { DebugOverlay } from "../debug/DebugOverlay";
 
 export type MapData = {
   objects: Record<string, string>;
@@ -66,75 +57,6 @@ const shellTilesRelativeCoordinates = [
   new IsoCoordinates(0, 1, 1),
   new IsoCoordinates(1, 1, 1),
 ];
-
-/** Fall acceleration, in cells per second squared */
-const GRAVITY = 40;
-/**
- * Fastest it can fall, in cells per second. A feel knob, not a safety net: Pixi
- * clamps a hitching frame to 100 ms, so a long drop still crosses two cells
- * between two frames. What keeps it out of the floor is the sweep in
- * `freeDistance`, which marches the box however far the move reaches.
- */
-const TERMINAL_SPEED = 20;
-
-/** How far below its feet the ground is looked for: only a floor it rests on */
-const GROUND_PROBE = 1e-6;
-
-/**
- * How fast a body `height` cells tall leaves the ground, in cells per second.
- *
- * A character jumps its own height, which needs no tuning since a body already
- * has one. A jump reaches v² / 2g, hence the square root; the floor keeps
- * anything imported able to climb the one-cell steps scenery is built from.
- */
-export const jumpSpeedFor = (height: number): number =>
-  Math.sqrt(2 * GRAVITY * Math.max(1, height));
-
-/**
- * The character's vertical speed after one frame, in cells per second.
- */
-export const fallVelocity = (
-  verticalSpeed: number,
-  {
-    grounded,
-    jump,
-    jumpSpeed,
-    seconds,
-  }: {
-    grounded: boolean;
-    jump: boolean;
-    /** what this body leaves the ground at: see jumpSpeedFor */
-    jumpSpeed: number;
-    seconds: number;
-  }
-): number => {
-  if (jump && grounded) return jumpSpeed;
-  // standing on the floor: whatever speed it fell in with is spent
-  const carried = grounded && verticalSpeed <= 0 ? 0 : verticalSpeed;
-  return Math.max(-TERMINAL_SPEED, carried - GRAVITY * seconds);
-};
-
-/**
- * Where the stick asks the character to walk, in cells per second.
- *
- * The stick points on the screen, the character walks in the grid, so this
- * undoes the projection x = 16(e − s), y = 8(e + s). Normalising in the GRID is
- * what keeps the speed constant in cells: normalised on screen, walking up it
- * would cover twice the ground of walking across it.
- */
-export const walkVelocity = (
-  leftStickX: number,
-  leftStickY: number
-): { s: number; e: number } => {
-  const towardS = leftStickY / 8 - leftStickX / 16;
-  const towardE = leftStickY / 8 + leftStickX / 16;
-  const length = Math.hypot(towardS, towardE);
-  if (length === 0) return { s: 0, e: 0 };
-  // a stick pushed into a corner is longer than one pushed straight
-  const push = Math.min(1, Math.hypot(leftStickX, leftStickY));
-  const pace = (push * NOMINAL_WALK_SPEED) / length;
-  return { s: towardS * pace, e: towardE * pace };
-};
 
 /** How far below its feet a character still casts a shadow, in cells */
 const SHADOW_REACH = 16;
@@ -167,10 +89,8 @@ export class Map extends Container {
 
   public character: Character | undefined;
 
-  /** The shadow under the character, one piece per ground cell. syncShadow. */
-  private shadowPieces: Graphics[] = [];
-  /** What each piece above holds, so that it is drawn only when it moves */
-  private shadowShapes: string[] = [];
+  /** DEBUG — the two F10 overlays, see DebugOverlay */
+  private readonly debug = new DebugOverlay(this);
 
   private velocity = new IsoCoordinates(0, 0, 0);
   /** Whether A was already down last frame, so a hold is not a second jump */
@@ -185,17 +105,6 @@ export class Map extends Container {
   public get characterVelocity(): IsoCoordinates {
     return this.velocity;
   }
-
-  /** DEBUG overlay, see syncDepthKeys */
-  private depthKeyOverlay?: Container;
-  private depthKeyLabels: Text[] = [];
-
-  /** DEBUG overlay, see syncChunkBounds. One line per chunk, drawn on demand. */
-  private chunkBoundsOverlay?: Container;
-  private chunkBounds: Record<
-    IsoString,
-    { line: Graphics; signature: string }
-  > = {};
 
   constructor(
     mapData: MapData,
@@ -345,7 +254,7 @@ export class Map extends Container {
    * A tile cell deserves a display object iff at least one of its direct
    * neighbors is not a tile
    */
-  private isInShell(iso: GlobalIsoCoordinates): boolean {
+  public isInShell(iso: GlobalIsoCoordinates): boolean {
     return shellTilesRelativeCoordinates.some(
       (relative) => this.getCellContentAt(iso.add(relative)) === undefined
     );
@@ -359,7 +268,7 @@ export class Map extends Container {
    * or felled, so counting them would make the shade depend on the order the
    * edits happened in.
    */
-  private isTileAt(iso: GlobalIsoCoordinates): boolean {
+  public isTileAt(iso: GlobalIsoCoordinates): boolean {
     const cell = this.getCellContentAt(iso);
     return typeof cell === "string" || cell instanceof Tile;
   }
@@ -676,91 +585,6 @@ export class Map extends Container {
   }
 
   /**
-   * First solid cell met by marching a box along a direction, or undefined if
-   * there is none within `searchDepth` cells.
-   *
-   * Scanning from the box's leading face, so a cell it already overlaps is
-   * never returned.
-   */
-  private firstSolidCellTowards(
-    box: IsoBox,
-    direction: IsoDirection,
-    searchDepth: number
-  ): GlobalIsoCoordinates | undefined {
-    const offset = IsoCoordinates.directionsOffsets[direction];
-    const axis: IsoAxis = offset.s !== 0 ? "s" : offset.e !== 0 ? "e" : "u";
-    const step = offset[axis];
-    const [crossA, crossB] = isoAxes.filter((candidate) => candidate !== axis);
-    const [aMin, aMax] = box.cellRange(crossA);
-    const [bMin, bMax] = box.cellRange(crossB);
-    const [lo, hi] = box.cellRange(axis);
-
-    let v = step > 0 ? hi : lo;
-    for (let depth = 0; depth < searchDepth; depth++) {
-      v += step;
-      for (let a = aMin; a <= aMax; a++) {
-        for (let b = bMin; b <= bMax; b++) {
-          const iso = new GlobalIsoCoordinates(0, 0, 0);
-          iso[axis] = v;
-          iso[crossA] = a;
-          iso[crossB] = b;
-          if (this.isSolidAt(iso)) return iso;
-        }
-      }
-    }
-    return undefined;
-  }
-
-  /**
-   * Where a hitbox standing at `from` ends up after asking to move by
-   * (deltaS, deltaE), stopped by whatever is in the way and sliding along it.
-   *
-   * One axis at a time, the second swept from where the FIRST left the box:
-   * against the same starting box neither sweep ever sees the cell diagonally
-   * ahead, and a 1×1 pillar approached corner-on would be passable. The larger
-   * component goes first, so the outcome does not depend on which axis happens
-   * to be called s.
-   */
-  private slideAlong(
-    from: GlobalIsoCoordinates,
-    hitbox: IsoCoordinates,
-    deltaS: number,
-    deltaE: number
-  ): GlobalIsoCoordinates {
-    const delta: Record<"s" | "e", number> = { s: deltaS, e: deltaE };
-    const order: ("s" | "e")[] =
-      Math.abs(deltaS) >= Math.abs(deltaE) ? ["s", "e"] : ["e", "s"];
-    let at = from;
-    for (const axis of order) {
-      const box = IsoBox.standingOn(at, hitbox);
-      const step = this.freeDistance(box, axis, delta[axis]);
-      const move = new IsoCoordinates(0, 0, 0);
-      move[axis] = step;
-      at = at.add(move);
-    }
-    return at;
-  }
-
-  /**
-   * How far the box may actually travel along one axis, given the intended
-   * `delta`: the delta itself when nothing is in the way, or the exact
-   * distance to the obstacle. Never changes sign, so a box can never be
-   * pushed backwards.
-   */
-  private freeDistance(box: IsoBox, axis: IsoAxis, delta: number): number {
-    if (delta === 0) return 0;
-    const direction =
-      isoDirectionByAxis[axis][delta > 0 ? "positive" : "negative"];
-    // nothing beyond the reach of this move can block it
-    const searchDepth = Math.ceil(Math.abs(delta)) + 1;
-    const obstacle = this.firstSolidCellTowards(box, direction, searchDepth);
-    if (!obstacle) return delta;
-    return delta > 0
-      ? Math.min(delta, obstacle[axis] - box.max[axis])
-      : Math.max(delta, obstacle[axis] + 1 - box.min[axis]);
-  }
-
-  /**
    * The HIGHEST ground under the cells the character's hitbox covers, or
    * nothing if there is none within reach.
    *
@@ -775,7 +599,7 @@ export class Map extends Container {
     let highest: number | undefined;
     for (let cs = cells.min.s; cs < cells.max.s; cs++) {
       for (let ce = cells.min.e; ce < cells.max.e; ce++) {
-        const ground = this.groundUnder(cs, ce, iso.u);
+        const ground = this.levelUnder(cs, ce, iso.u);
         if (ground === undefined) continue;
         if (highest === undefined || ground > highest) highest = ground;
       }
@@ -879,7 +703,9 @@ export class Map extends Container {
 
     character.direction = headingOf(deltaS, deltaE) ?? character.direction;
 
-    const walked = this.slideAlong(
+    const isSolid = (iso: GlobalIsoCoordinates) => this.isSolidAt(iso);
+    const walked = slideAlong(
+      isSolid,
       character.globalIsoCoordinates,
       character.hitbox,
       deltaS,
@@ -890,7 +716,7 @@ export class Map extends Container {
     // something is asking to go down and being refused, which is also what
     // tells a jump it is allowed.
     const fallBox = IsoBox.standingOn(walked, character.hitbox);
-    const grounded = this.freeDistance(fallBox, "u", -GROUND_PROBE) === 0;
+    const grounded = isGrounded(isSolid, fallBox);
     const jumped = input.jump && grounded;
     character.verticalSpeed = fallVelocity(character.verticalSpeed, {
       grounded,
@@ -899,7 +725,7 @@ export class Map extends Container {
       seconds,
     });
     const wanted = character.verticalSpeed * seconds;
-    const rise = this.freeDistance(fallBox, "u", wanted);
+    const rise = freeDistance(isSolid, fallBox, "u", wanted);
     // a floor caught it, or its head hit a ceiling: the speed is spent
     if (rise !== wanted) character.verticalSpeed = 0;
     const after = walked.add(new IsoCoordinates(0, 0, rise));
@@ -920,12 +746,7 @@ export class Map extends Container {
     // jump, and the animation has to agree.
     character.update({
       seconds,
-      grounded:
-        this.freeDistance(
-          IsoBox.standingOn(after, character.hitbox),
-          "u",
-          -GROUND_PROBE
-        ) === 0,
+      grounded: isGrounded(isSolid, IsoBox.standingOn(after, character.hitbox)),
       jumped,
       attack: input.attack,
     });
@@ -939,7 +760,7 @@ export class Map extends Container {
    * EntityColumns. Off the map is an error, not a case: isSolidAt walls the map
    * at the edge of its chunks, so this is the assertion, not the handling.
    */
-  private chunkOver(s: number, e: number): MapChunk {
+  public hostOver(s: number, e: number): MapChunk {
     const chunkIso = this.toChunkIso(new GlobalIsoCoordinates(s, e, 0));
     const chunk = this.chunks[chunkIso.toString()];
     if (!chunk) {
@@ -957,7 +778,7 @@ export class Map extends Container {
    * One column, not the whole footprint: the shadow needs the ground under each
    * cell it covers separately, since two of them can be at different heights.
    */
-  private groundUnder(s: number, e: number, u: number): number | undefined {
+  public levelUnder(s: number, e: number, u: number): number | undefined {
     const below = Math.floor(u) - 1;
     for (
       let level = below;
@@ -969,118 +790,16 @@ export class Map extends Container {
     return undefined;
   }
 
-  /**
-   * The disc the shadow is cast from, in cells.
-   *
-   * INSIDE the footprint, so the shadow stays on cells that can never be drawn
-   * in front of the character — a wider one puts dark pixels on its feet. On
-   * whole pixels, like the sprite, or it shimmers under it: what is rounded is
-   * the projection, then inverted back.
-   */
-  private shadowDisc(character: Character) {
-    const iso = character.globalIsoCoordinates;
-    const across = Math.round(16 * (iso.e - iso.s)) / 16;
-    const along = Math.round(8 * (iso.e + iso.s)) / 8;
-    return {
-      radius: Math.min(character.hitbox.s, character.hitbox.e) / 2,
-      centre: {
-        s: (along - across) / 2 + 0.5,
-        e: (along + across) / 2 + 0.5,
-      },
-    };
-  }
-
-  /**
-   * Keep the character's shadow on the ground below it, one piece per ground
-   * cell, each a quarter above the cell it lies on.
-   *
-   * One key for the whole shadow lifts the pieces lying on cells behind — the
-   * ones a character standing on an edge drops into the hole beside it — over
-   * the tile and the character that ought to hide them.
-   */
-  private syncShadow(character: Character) {
-    const iso = character.globalIsoCoordinates;
-    const { radius, centre } = this.shadowDisc(character);
-    // Over the cells of the HITBOX, not those of the disc: the disc lies
-    // inside the footprint, so nothing is lost, and this is the range that is
-    // certainly inside the map — floor(centre + radius) picks up the cell past
-    // a box standing flush against a boundary, which has no chunk to be drawn
-    // in when that boundary is the edge of the map. Cells the disc misses drop
-    // out on their own, with no run to paint.
-    const cells = IsoBox.standingOn(iso, character.hitbox).cells();
-
-    let used = 0;
-    for (let cs = cells.min.s; cs < cells.max.s; cs++) {
-      for (let ce = cells.min.e; ce < cells.max.e; ce++) {
-        const ground = this.groundUnder(cs, ce, iso.u);
-        if (ground === undefined) continue;
-        const runs = shadowRuns(cs, ce, centre, radius);
-        if (runs.length === 0) continue;
-        // Over the cell it lies on, under the character: the ground is a level
-        // below the cell the character's pieces are keyed from, and those take
-        // a fraction above it (EntityColumns.subCellKey), so the quarter only
-        // ever has to clear the cell the shadow lies on.
-        this.paintShadow(used++, this.chunkOver(cs, ce), runs, {
-          at: new GlobalIsoCoordinates(cs, ce, ground).toXY(),
-          zIndex: paintersOrderKey(cs, ce, ground) + 0.25,
-        });
-      }
-    }
-    this.clearShadowPiecesFrom(used);
-  }
-
-  /**
-   * Fill one pooled piece of shadow with `runs`, and only when they changed.
-   *
-   * The guard is not an optimisation: Pixi rebuilds a whole render group's draw
-   * instructions as soon as one Graphics in it reports a change, so redrawing
-   * an unmoved shadow costs its chunk's entire instruction set every frame.
-   */
-  private paintShadow(
-    index: number,
-    host: MapChunk,
-    runs: ShadowRun[],
-    where: { at: { x: number; y: number }; zIndex: number }
-  ) {
-    const piece = (this.shadowPieces[index] ??= new Graphics({
-      eventMode: "none",
-    }));
-    if (piece.parent !== host) host.addChild(piece);
-    piece.x = where.at.x;
-    piece.y = where.at.y;
-    piece.zIndex = where.zIndex;
-    const shape = runs.map((run) => `${run.x},${run.y},${run.width}`).join(";");
-    if (this.shadowShapes[index] === shape) return;
-    this.shadowShapes[index] = shape;
-    paintRuns(piece, runs);
-  }
-
-  /**
-   * Put away the pieces this frame had no use for. Detached and not merely
-   * cleared: one left behind would keep its chunk from ever being destroyed.
-   */
-  private clearShadowPiecesFrom(index: number) {
-    for (let spare = index; spare < this.shadowPieces.length; spare++) {
-      const piece = this.shadowPieces[spare];
-      piece.parent?.removeChild(piece);
-      if (this.shadowShapes[spare] === "") continue;
-      this.shadowShapes[spare] = "";
-      piece.clear();
-    }
-  }
-
   /** Cut the character up and hand each piece to its own column's chunk. */
   private syncView() {
     const character = this.character;
-    if (!character) {
-      this.clearShadowPiecesFrom(0);
-      return;
-    }
-    this.syncShadow(character);
+    if (!character) return;
+    const { globalIsoCoordinates: iso, hitbox } = character;
+    character.shadow.sync(iso, hitbox, this);
     if (character.needsSlicing) {
       character.setSlices(sliceEntityByColumn(character.shape));
     }
-    character.render((s, e) => this.chunkOver(s, e));
+    character.render((s, e) => this.hostOver(s, e));
   }
 
   private updateCosmetics(time: Ticker) {
@@ -1090,204 +809,19 @@ export class Map extends Container {
     }
   }
 
-  /**
-   * DEBUG — a red line along every chunk boundary, laid on the top face of the
-   * tiles that sit on it. Toggled with F10, see DebugView.
-   *
-   * A boundary is exactly where a local coordinate is 0, so a tile knows it
-   * stands on one without looking at a neighbour, and draws the NORTH and WEST
-   * edges of its own top face — the ones it owns (Shadows.NORTH_EDGE_RUNS),
-   * which also means one line per boundary rather than two abutting ones.
-   *
-   * One Graphics per chunk, rebuilt only when the chunk's own cells changed.
-   * All of them in an overlay above the map rather than inside the chunks,
-   * where they would be hidden by the terrain in front of them — for finding a
-   * boundary, showing through is worth more than looking solid.
-   */
-  private syncChunkBounds() {
-    if (!debugViewEnabled()) {
-      if (this.chunkBoundsOverlay) this.chunkBoundsOverlay.visible = false;
-      return;
-    }
-    if (!this.chunkBoundsOverlay) {
-      this.chunkBoundsOverlay = new Container();
-      // above every chunk, and just under the depth key labels
-      this.chunkBoundsOverlay.zIndex = Number.MAX_SAFE_INTEGER - 1;
-      this.addChild(this.chunkBoundsOverlay);
-    }
-    this.chunkBoundsOverlay.visible = true;
-
-    for (const key of Object.keys(this.chunkBounds) as IsoString[]) {
-      if (this.chunks[key]) continue;
-      this.chunkBounds[key].line.destroy();
-      delete this.chunkBounds[key];
-    }
-
-    for (const key of Object.keys(this.chunks) as IsoString[]) {
-      const chunk = this.chunks[key];
-      const drawn = (this.chunkBounds[key] ??= {
-        line: this.chunkBoundsOverlay.addChild(
-          new Graphics({ eventMode: "none" })
-        ),
-        signature: "",
-      });
-      const signature = `${chunk.revision}`;
-      if (drawn.signature === signature) continue;
-      drawn.signature = signature;
-      drawn.line.clear();
-      for (const cellKey of Object.keys(chunk.cells) as IsoString[]) {
-        const local = LocalIsoCoordinates.fromString(cellKey);
-        if (local.s !== 0 && local.e !== 0) continue;
-        const iso = chunk.toGlobalIsoCoordinates(local);
-        // only a top face that is actually drawn: a buried tile has none, and
-        // a map object is not a face at all
-        if (!this.isTileAt(iso) || this.isTileAt(iso.move("up"))) continue;
-        if (!this.isInShell(iso)) continue;
-        const xy = iso.toXY();
-        const runs = [
-          ...(local.s === 0 ? NORTH_EDGE_RUNS : []),
-          ...(local.e === 0 ? WEST_EDGE_RUNS : []),
-        ];
-        for (const run of runs) {
-          drawn.line.rect(xy.x + run.x, xy.y + run.y, run.width, 1);
-        }
-      }
-      drawn.line.fill({ color: 0xff0000, alpha: 1 });
-    }
-  }
-
-  /**
-   * DEBUG — writes the depth key on every cell around the character and on
-   * every piece of its sprite, so the draw order can be read off the screen.
-   * Toggled with F10, see DebugView. Only the cells the character can reach are
-   * labelled; a whole map's worth of text would be unreadable.
-   */
-  private syncDepthKeys() {
-    const character = this.character;
-    if (!debugViewEnabled() || !character) {
-      this.depthKeyLabels.forEach((label) => (label.visible = false));
-      return;
-    }
-    if (!this.depthKeyOverlay) {
-      this.depthKeyOverlay = new Container();
-      // above every chunk, whatever their diagonal
-      this.depthKeyOverlay.zIndex = Number.MAX_SAFE_INTEGER;
-      this.addChild(this.depthKeyOverlay);
-    }
-
-    let used = 0;
-    /** Two lines, the pair centred on (x, y). */
-    const write = (
-      top: string,
-      bottom: string,
-      x: number,
-      y: number,
-      fill: number
-    ) => {
-      const label = (this.depthKeyLabels[used] ??=
-        this.depthKeyOverlay!.addChild(
-          new Text({
-            text: "",
-            // thirteen characters have to fit in a 32 px cell, so the type is
-            // tiny; the resolution is what keeps it readable once zoomed in
-            resolution: 8,
-            anchor: 0.5,
-            style: {
-              fontFamily: "monospace",
-              fontSize: 2,
-              align: "center",
-              fill: 0xffffff,
-              // in style pixels, so it has to shrink with the type
-              stroke: { color: 0x000000, width: 0.5 },
-            },
-          })
-        ));
-      used++;
-      label.visible = true;
-      const text = `${top}\n${bottom}`;
-      // both of these rebuild the text's texture, so only when they change
-      if (label.text !== text) label.text = text;
-      if (label.style.fill !== fill) label.style.fill = fill;
-      label.x = x;
-      label.y = y;
-    };
-
-    const { s, e, u } = character.globalIsoCoordinates;
-    const radius = 3;
-    for (let cs = Math.floor(s) - radius; cs <= Math.floor(s) + radius; cs++) {
-      for (
-        let ce = Math.floor(e) - radius;
-        ce <= Math.floor(e) + radius;
-        ce++
-      ) {
-        for (let cu = Math.floor(u) - 2; cu <= Math.floor(u) + 3; cu++) {
-          const iso = new GlobalIsoCoordinates(cs, ce, cu);
-          // only what is actually drawn: a buried cell's label would float over
-          // the tiles hiding it
-          if (!this.isCellOccupied(iso) || !this.isInShell(iso)) continue;
-          const xy = iso.toXY();
-          // the middle of the cell's top face, which is the top half of its
-          // 32×24 sprite
-          write(
-            iso.toString(),
-            `${iso.paintersOrderKey()}`,
-            xy.x + 16,
-            xy.y + 8,
-            0xffffff
-          );
-        }
-      }
-    }
-    const slicing = character.slicing;
-    const pieces = slicing?.pieces ?? [];
-    pieces.forEach((piece, index) => {
-      // A piece is a run of pixels per row, not a rectangle, so the label goes
-      // at the centroid of the pixels it covers: the centre of the bounding box
-      // of a piece cut along a diagonal falls inside the neighbouring one.
-      let covered = 0;
-      let x = 0;
-      let y = 0;
-      for (const run of piece.runs) {
-        covered += run.width;
-        x += (run.x + run.width / 2) * run.width;
-        y += (run.y + 0.5) * run.width;
-      }
-      // Which column the piece stands over — except on the nearest piece, which
-      // comes last, where the character's own position is worth more.
-      const where =
-        index === pieces.length - 1
-          ? `${s.toFixed(1)},${e.toFixed(1)},${u.toFixed(1)}`
-          : `${piece.s},${piece.e}`;
-      write(
-        // one decimal of the fraction is enough to separate two characters
-        // sharing a column, where a double prints sixteen
-        where,
-        piece.zIndex.toFixed(1),
-        slicing!.x + x / covered,
-        slicing!.y + y / covered,
-        0xffe066
-      );
-    });
-    for (let index = used; index < this.depthKeyLabels.length; index++) {
-      this.depthKeyLabels[index].visible = false;
-    }
-  }
-
   public update(time: Ticker) {
     const input = this.sampleInput();
     // picks the animation frame too, which the view is then cut from
     this.simulate(time, input);
     this.updateCosmetics(time);
     this.syncView();
-    this.syncChunkBounds();
-    this.syncDepthKeys();
+    this.debug.sync();
   }
 
   public destroy(options?: { children?: boolean; texture?: boolean }) {
-    // both borrow a chunk to be drawn in, so both go before the chunks do
+    // it borrows chunks to be drawn in, so it goes before the chunks do
     this.character?.destroy();
     this.character = undefined;
-    for (const piece of this.shadowPieces) piece.destroy();
     this.cursorSprites.up.destroy();
     this.cursorSprites.east.destroy();
     this.cursorSprites.south.destroy();

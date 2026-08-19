@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { stickFromKeys } from "./Keyboard";
-import { walkVelocity } from "./Map";
+import { walkVelocity } from "../character/Collision";
 
 const round = (value: number) => Math.round(value * 1000) / 1000;
 

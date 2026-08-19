@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { Container, Mesh, Ticker } from "pixi.js";
 import { buildHeadlessMap } from "./composeMapImage";
-import { Map as IsometricMap, MapData } from "../Map";
-import { GlobalIsoCoordinates } from "../IsometricCoordinate";
-import { MapChunk } from "../MapChunk";
+import { Map as IsometricMap, MapData } from "../map/Map";
+import { GlobalIsoCoordinates } from "../iso/IsometricCoordinate";
+import { MapChunk } from "../map/MapChunk";
 
 /**
  * A character drawn by the chunks it stands over — the bookkeeping, not the

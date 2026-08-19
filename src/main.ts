@@ -7,7 +7,7 @@ import { CreationEngine } from "./engine/engine";
 import {
   PLACEABLE_CHARACTERS,
   loadCharacterSprites,
-} from "./app/screens/main/characterSprites";
+} from "./app/screens/main/character/characterSprites";
 
 /**
  * Importing these modules will automatically register there plugins with the engine.

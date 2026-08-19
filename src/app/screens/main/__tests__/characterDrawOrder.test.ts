@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { PNG } from "pngjs";
 import { composeMapImage } from "./composeMapImage";
-import { MapData } from "../Map";
+import { MapData } from "../map/Map";
 
 /**
  * End-to-end depth order of a character, asserted on rendered pixels only.

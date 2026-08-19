@@ -3,10 +3,10 @@ import {
   GlobalIsoCoordinates,
   IsoCoordinates,
   LocalIsoCoordinates,
-} from "./IsometricCoordinate";
+} from "../iso/IsometricCoordinate";
 import type { MapChunk } from "./MapChunk";
-import { NoTextureFoundError } from "./NoTextureFoundError";
-import { paintRuns, TOP_FACE_RUNS } from "./Shadows";
+import { NoTextureFoundError } from "../NoTextureFoundError";
+import { paintRuns, TOP_FACE_RUNS } from "../iso/Shadows";
 import { TileFragment, tileFragmentKeys } from "./TileFragment";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
 

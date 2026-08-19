@@ -1,7 +1,7 @@
 import { Sprite } from "pixi.js";
-import { NoTextureFoundError } from "./NoTextureFoundError";
+import { NoTextureFoundError } from "../NoTextureFoundError";
 import { TileFragmentsTextures } from "./TileFragmentsTextures";
-import { IsoCoordinates } from "./IsometricCoordinate";
+import { IsoCoordinates } from "../iso/IsometricCoordinate";
 import type { TileType } from "./Tile";
 
 /**

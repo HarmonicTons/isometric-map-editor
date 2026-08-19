@@ -1,4 +1,4 @@
-import type { Stick } from "./Gamepad";
+import type { Stick } from "./input/Gamepad";
 
 /** How fast the stick moves the camera, in SCREEN pixels per second */
 export const CAMERA_SPEED = 600;

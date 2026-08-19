@@ -13,13 +13,13 @@ import {
   TextureSource,
 } from "pixi.js";
 import { PNG } from "pngjs";
-import { Map as IsometricMap, MapData } from "../Map";
-import { TileFragmentsTextures } from "../TileFragmentsTextures";
-import type { CharacterSprites } from "../characterSprites";
+import { Map as IsometricMap, MapData } from "../map/Map";
+import { TileFragmentsTextures } from "../map/TileFragmentsTextures";
+import type { CharacterSprites } from "../character/characterSprites";
 import {
   characterSpritesLoaded,
   registerCharacterSprites,
-} from "../characterSprites";
+} from "../character/characterSprites";
 
 /**
  * CPU compositor for snapshot tests: builds the map with the REAL Map class

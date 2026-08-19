@@ -1,17 +1,17 @@
 import { Container, Graphics, Sprite } from "pixi.js";
-import { MapObject, MapObjectType } from "./MapObject";
-import { Tile, TileType } from "./Tile";
+import { MapObject, MapObjectType } from "./map/MapObject";
+import { Tile, TileType } from "./map/Tile";
 import { engine } from "../../getEngine";
 import { FancyButton } from "@pixi/ui";
-import { TileFragmentsTextures } from "./TileFragmentsTextures";
+import { TileFragmentsTextures } from "./map/TileFragmentsTextures";
 import {
   GlobalIsoCoordinates,
   LocalIsoCoordinates,
-} from "./IsometricCoordinate";
+} from "./iso/IsometricCoordinate";
 import { CursorAction } from "./GameScreen";
-import { MapChunk } from "./MapChunk";
-import { characterPortrait, CharacterType } from "./Character";
-import { PLACEABLE_CHARACTERS } from "./characterSprites";
+import { MapChunk } from "./map/MapChunk";
+import { characterPortrait, CharacterType } from "./character/Character";
+import { PLACEABLE_CHARACTERS } from "./character/characterSprites";
 
 const buttonAnimations = {
   hover: {
